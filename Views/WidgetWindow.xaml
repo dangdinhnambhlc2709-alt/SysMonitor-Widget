@@ -1,0 +1,475 @@
+<Window x:Class="WinHardwareMonitor.Views.WidgetWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:ui="http://schemas.lepo.co/wpfui/2022/xaml"
+        xmlns:controls="clr-namespace:WinHardwareMonitor.Controls"
+        Title="Widget Thông số phần cứng"
+        Icon="pack://application:,,,/Assets/app.ico"
+        WindowStyle="None"
+        AllowsTransparency="False"
+        Background="Transparent"
+        Topmost="{Binding IsWidgetTopmost, Mode=OneWay}"
+        ShowInTaskbar="False"
+        ResizeMode="NoResize"
+        MinWidth="150"
+        MinHeight="42"
+        AllowDrop="True"
+        TextOptions.TextFormattingMode="Ideal"
+        TextOptions.TextRenderingMode="ClearType"
+        FontFamily="{Binding SelectedFontFamily}"
+        DragEnter="Widget_DragOver"
+        DragOver="Widget_DragOver"
+        DragLeave="Widget_DragLeave"
+        Drop="Widget_Drop"
+        KeyDown="Widget_KeyDown">
+
+    <WindowChrome.WindowChrome>
+        <WindowChrome GlassFrameThickness="-1"
+                      CaptionHeight="0"
+                      ResizeBorderThickness="0"
+                      CornerRadius="0" />
+    </WindowChrome.WindowChrome>
+
+    <Window.Resources>
+        <Style x:Key="ResizeThumbStyle" TargetType="Thumb">
+            <Setter Property="Opacity" Value="0" />
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Thumb">
+                        <Rectangle Fill="Transparent" />
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style x:Key="WidgetItemContainerStyle" TargetType="ContentPresenter">
+            <Setter Property="Visibility" Value="Visible" />
+            <Style.Triggers>
+                <DataTrigger Binding="{Binding IsVisibleOnWidget}" Value="False">
+                    <Setter Property="Visibility" Value="Collapsed" />
+                </DataTrigger>
+            </Style.Triggers>
+        </Style>
+
+        <Storyboard x:Key="DropIndicatorPulseStoryboard" RepeatBehavior="Forever" AutoReverse="True">
+            <DoubleAnimation Storyboard.TargetName="DropIndicatorBar"
+                             Storyboard.TargetProperty="Opacity"
+                             From="1.0" To="0.45" Duration="0:0:0.45" />
+            <DoubleAnimation Storyboard.TargetName="DropTargetDashRect"
+                             Storyboard.TargetProperty="Opacity"
+                             From="0.95" To="0.35" Duration="0:0:0.45" />
+        </Storyboard>
+    </Window.Resources>
+
+    <Window.ContextMenu>
+        <ContextMenu>
+            <MenuItem Header="Mở bảng điều khiển" Command="{Binding OpenSettingsCommand}" />
+            <MenuItem Header="Luôn hiện trên ứng dụng khác" IsCheckable="True" IsChecked="{Binding IsWidgetTopmost, Mode=TwoWay}" />
+            <MenuItem Header="Khóa vị trí - Xuyên chuột (Ctrl + Shift + L)" Command="{Binding ToggleClickThroughCommand}" />
+            <MenuItem Header="Đặt lại bộ đếm FPS 60s (Ctrl + Shift + R)" Command="{Binding ResetFpsStatsCommand}" />
+            <MenuItem Header="Ẩn Widget" Command="{Binding ToggleWidgetVisibilityCommand}" />
+            <Separator />
+            <MenuItem Header="Thoát ứng dụng" Command="{Binding ExitAppCommand}" />
+        </ContextMenu>
+    </Window.ContextMenu>
+
+    <Grid x:Name="RootGrid"
+          MouseEnter="RootGrid_MouseEnter"
+          MouseLeave="RootGrid_MouseLeave"
+          MouseMove="RootGrid_MouseMove"
+          MouseLeftButtonUp="RootGrid_MouseLeftButtonUp"
+          LostMouseCapture="RootGrid_LostMouseCapture">
+
+        <!-- Lớp bắt chuột rất nhẹ khi mở khóa & độ đậm nền = 0% -->
+        <Border x:Name="HitTestLayer"
+                CornerRadius="{Binding EffectiveWidgetCornerRadius}"
+                Background="#01000000"
+                MouseLeftButtonDown="WidgetBody_MouseLeftButtonDown" />
+
+        <!-- Lớp nền màu mờ/đậm -->
+        <Border CornerRadius="{Binding EffectiveWidgetCornerRadius}"
+                Background="{Binding WidgetBackgroundBrush}"
+                IsHitTestVisible="False" />
+
+        <!-- Lớp ánh bóng khúc xạ bên trong cho chế độ Kính mềm (Liquid Glass / Soft Glass) -->
+        <Border CornerRadius="{Binding EffectiveWidgetCornerRadius}"
+                Background="{Binding SoftGlassSheenBrush}"
+                Visibility="{Binding IsSoftGlass, Converter={StaticResource BoolToVis}}"
+                IsHitTestVisible="False" />
+
+        <!-- Viền khúc xạ trong tinh tế của Kính mềm (tạo độ dày thấu kính giống mẫu) -->
+        <Border Margin="1.5"
+                CornerRadius="{Binding EffectiveWidgetCornerRadius}"
+                BorderThickness="0.8"
+                Visibility="{Binding IsSoftGlass, Converter={StaticResource BoolToVis}}"
+                IsHitTestVisible="False">
+            <Border.BorderBrush>
+                <LinearGradientBrush StartPoint="0,0" EndPoint="0,1">
+                    <GradientStop Color="#66FFFFFF" Offset="0.0" />
+                    <GradientStop Color="#00FFFFFF" Offset="0.45" />
+                    <GradientStop Color="#22000000" Offset="0.85" />
+                    <GradientStop Color="#44FFFFFF" Offset="1.0" />
+                </LinearGradientBrush>
+            </Border.BorderBrush>
+        </Border>
+
+        <!-- Lớp ảnh nền PNG tùy chỉnh (bo tròn khít với khung Widget) -->
+        <Border CornerRadius="{Binding EffectiveWidgetCornerRadius}"
+                Background="{Binding WidgetBackgroundImageBrush}"
+                Visibility="{Binding HasBackgroundImage, Converter={StaticResource BoolToVis}}"
+                IsHitTestVisible="False" />
+
+        <!-- Khung viền (viền phản quang trắng sắc nét ở Kính mềm, siêu mảnh ở Kính mờ) & Nội dung chính -->
+        <Border x:Name="WidgetBorder"
+                Background="Transparent"
+                BorderBrush="{Binding WidgetBorderBrush}"
+                BorderThickness="{Binding WidgetBorderThickness}"
+                CornerRadius="{Binding EffectiveWidgetCornerRadius}"
+                Padding="{Binding EffectiveWidgetPadding}"
+                MouseLeftButtonDown="WidgetBody_MouseLeftButtonDown">
+
+            <Grid>
+                <ItemsControl x:Name="WidgetItemsControl"
+                              ItemsSource="{Binding ActiveMetrics}"
+                              ItemContainerStyle="{StaticResource WidgetItemContainerStyle}"
+                              VerticalAlignment="Center">
+                    <ItemsControl.ItemsPanel>
+                        <ItemsPanelTemplate>
+                            <controls:ResponsiveMetricPanel HorizontalSpacing="{Binding EffectiveHorizontalSpacing}"
+                                                            VerticalSpacing="{Binding EffectiveVerticalSpacing}" />
+                        </ItemsPanelTemplate>
+                    </ItemsControl.ItemsPanel>
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate>
+                            <Border x:Name="MetricTileBorder"
+                                    Background="{Binding BlockBackgroundBrush}"
+                                    BorderBrush="{Binding BlockBorderBrush}"
+                                    BorderThickness="{Binding BlockBorderThickness}"
+                                    Padding="{Binding BlockPadding}"
+                                    CornerRadius="{Binding BlockCornerRadius}"
+                                    Opacity="{Binding TileOpacity}"
+                                    Cursor="Hand"
+                                    PreviewMouseLeftButtonDown="WidgetMetricTile_PreviewMouseLeftButtonDown"
+                                    ToolTip="Nhấn giữ và kéo mục này để đổi vị trí (kéo thanh nắm phía trên hoặc giữ Ctrl + kéo để di chuyển Widget)">
+                                <Border.Effect>
+                                    <DropShadowEffect Direction="270"
+                                                      Color="#000000"
+                                                      ShadowDepth="{Binding BlockShadowDepth}"
+                                                      BlurRadius="{Binding BlockShadowBlur}"
+                                                      Opacity="{Binding BlockShadowOpacity}" />
+                                </Border.Effect>
+
+                                <Grid>
+                                    <!-- CHẾ ĐỘ 1: Mục thông số dạng chữ / số thông thường -->
+                                    <Grid>
+                                        <Grid.Style>
+                                            <Style TargetType="Grid">
+                                                <Setter Property="Visibility" Value="Visible" />
+                                                <Style.Triggers>
+                                                    <DataTrigger Binding="{Binding IsGraphMetric}" Value="True">
+                                                        <Setter Property="Visibility" Value="Collapsed" />
+                                                    </DataTrigger>
+                                                    <DataTrigger Binding="{Binding IsGpuBadgesMetric}" Value="True">
+                                                        <Setter Property="Visibility" Value="Collapsed" />
+                                                    </DataTrigger>
+                                                </Style.Triggers>
+                                            </Style>
+                                        </Grid.Style>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="Auto" />
+                                            <ColumnDefinition Width="Auto" />
+                                            <ColumnDefinition Width="*" />
+                                        </Grid.ColumnDefinitions>
+
+                                        <ui:SymbolIcon Grid.Column="0"
+                                                       Symbol="{Binding EffectiveSymbol}"
+                                                       FontSize="{Binding DataContext.EffectiveIconFontSize, RelativeSource={RelativeSource AncestorType=Window}}"
+                                                       Foreground="{Binding EffectiveLabelBrush}"
+                                                       VerticalAlignment="Center"
+                                                       Margin="0,0,6,0"
+                                                       Visibility="{Binding IsIconHeader, Converter={StaticResource BoolToVis}}">
+                                            <ui:SymbolIcon.Effect>
+                                                <DropShadowEffect ShadowDepth="1" BlurRadius="4" Color="#000000"
+                                                                  Opacity="{Binding DataContext.WidgetTextShadowOpacity, RelativeSource={RelativeSource AncestorType=Window}}" />
+                                            </ui:SymbolIcon.Effect>
+                                        </ui:SymbolIcon>
+
+                                        <TextBlock Grid.Column="1"
+                                                   Text="{Binding DisplayLabel}"
+                                                   FontFamily="{Binding DataContext.SelectedFontFamily, RelativeSource={RelativeSource AncestorType=Window}}"
+                                                   FontSize="{Binding DataContext.EffectiveLabelFontSize, RelativeSource={RelativeSource AncestorType=Window}}"
+                                                   FontWeight="{Binding DataContext.WidgetLabelFontWeight, RelativeSource={RelativeSource AncestorType=Window}}"
+                                                   Foreground="{Binding EffectiveLabelBrush}"
+                                                   VerticalAlignment="Center"
+                                                   Margin="0,0,7,0"
+                                                   Visibility="{Binding IsTextHeader, Converter={StaticResource BoolToVis}}">
+                                            <TextBlock.Effect>
+                                                <DropShadowEffect ShadowDepth="1" BlurRadius="4" Color="#000000"
+                                                                  Opacity="{Binding DataContext.WidgetTextShadowOpacity, RelativeSource={RelativeSource AncestorType=Window}}" />
+                                            </TextBlock.Effect>
+                                        </TextBlock>
+
+                                        <TextBlock Grid.Column="2"
+                                                   Text="{Binding FormattedValue}"
+                                                   FontFamily="{Binding DataContext.SelectedFontFamily, RelativeSource={RelativeSource AncestorType=Window}}"
+                                                   FontSize="{Binding DataContext.EffectiveFontSize, RelativeSource={RelativeSource AncestorType=Window}}"
+                                                   FontWeight="{Binding DataContext.WidgetValueFontWeight, RelativeSource={RelativeSource AncestorType=Window}}"
+                                                   Foreground="{Binding EffectiveValueBrush}"
+                                                   Typography.NumeralAlignment="Tabular"
+                                                   HorizontalAlignment="Right"
+                                                   VerticalAlignment="Center"
+                                                   TextTrimming="CharacterEllipsis">
+                                            <TextBlock.Effect>
+                                                <DropShadowEffect ShadowDepth="1" BlurRadius="4" Color="#000000"
+                                                                  Opacity="{Binding DataContext.WidgetTextShadowOpacity, RelativeSource={RelativeSource AncestorType=Window}}" />
+                                            </TextBlock.Effect>
+                                        </TextBlock>
+                                    </Grid>
+
+                                    <!-- CHẾ ĐỘ 2: Mục Đồ thị FPS -->
+                                    <StackPanel MinWidth="{Binding DataContext.EffectiveGraphMinWidth, RelativeSource={RelativeSource AncestorType=Window}}">
+                                        <StackPanel.Style>
+                                            <Style TargetType="StackPanel">
+                                                <Setter Property="Visibility" Value="Collapsed" />
+                                                <Style.Triggers>
+                                                    <DataTrigger Binding="{Binding IsGraphMetric}" Value="True">
+                                                        <Setter Property="Visibility" Value="Visible" />
+                                                    </DataTrigger>
+                                                </Style.Triggers>
+                                            </Style>
+                                        </StackPanel.Style>
+
+                                        <DockPanel Margin="0,0,0,4">
+                                            <TextBlock DockPanel.Dock="Right"
+                                                       Text="{Binding FormattedValue}"
+                                                       FontFamily="{Binding DataContext.SelectedFontFamily, RelativeSource={RelativeSource AncestorType=Window}}"
+                                                       FontSize="{Binding DataContext.EffectiveLabelFontSize, RelativeSource={RelativeSource AncestorType=Window}}"
+                                                       FontWeight="{Binding DataContext.WidgetValueFontWeight, RelativeSource={RelativeSource AncestorType=Window}}"
+                                                       Foreground="{Binding EffectiveValueBrush}"
+                                                       Typography.NumeralAlignment="Tabular"
+                                                       VerticalAlignment="Center" />
+
+                                            <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                                <ui:SymbolIcon Symbol="{Binding EffectiveSymbol}"
+                                                               FontSize="{Binding DataContext.EffectiveIconFontSize, RelativeSource={RelativeSource AncestorType=Window}}"
+                                                               Foreground="{Binding EffectiveLabelBrush}"
+                                                               VerticalAlignment="Center"
+                                                               Visibility="{Binding IsIconHeader, Converter={StaticResource BoolToVis}}" />
+                                                <TextBlock Text="{Binding DisplayLabel}"
+                                                           FontFamily="{Binding DataContext.SelectedFontFamily, RelativeSource={RelativeSource AncestorType=Window}}"
+                                                           FontSize="{Binding DataContext.EffectiveLabelFontSize, RelativeSource={RelativeSource AncestorType=Window}}"
+                                                           FontWeight="{Binding DataContext.WidgetLabelFontWeight, RelativeSource={RelativeSource AncestorType=Window}}"
+                                                           Foreground="{Binding EffectiveLabelBrush}"
+                                                           VerticalAlignment="Center"
+                                                           Visibility="{Binding IsTextHeader, Converter={StaticResource BoolToVis}}" />
+                                            </StackPanel>
+                                        </DockPanel>
+
+                                        <controls:FpsGraphControl Height="{Binding DataContext.EffectiveFpsGraphHeight, RelativeSource={RelativeSource AncestorType=Window}}"
+                                                                  Points="{Binding DataContext.FpsGraphHistory, RelativeSource={RelativeSource AncestorType=Window}}"
+                                                                  BaseLineBrush="{Binding DataContext.FpsGraphBaseBrush, RelativeSource={RelativeSource AncestorType=Window}}"
+                                                                  FrameGenLineBrush="{Binding DataContext.FpsGraphFrameGenBrush, RelativeSource={RelativeSource AncestorType=Window}}" />
+                                    </StackPanel>
+
+                                    <!-- CHẾ ĐỘ 3: Dãy Huy hiệu Công nghệ GPU -->
+                                    <StackPanel>
+                                        <StackPanel.Style>
+                                            <Style TargetType="StackPanel">
+                                                <Setter Property="Visibility" Value="Collapsed" />
+                                                <Style.Triggers>
+                                                    <DataTrigger Binding="{Binding IsGpuBadgesMetric}" Value="True">
+                                                        <Setter Property="Visibility" Value="Visible" />
+                                                    </DataTrigger>
+                                                </Style.Triggers>
+                                            </Style>
+                                        </StackPanel.Style>
+
+                                        <ItemsControl ItemsSource="{Binding DataContext.ActiveGpuBadges, RelativeSource={RelativeSource AncestorType=Window}}">
+                                            <ItemsControl.ItemsPanel>
+                                                <ItemsPanelTemplate>
+                                                    <WrapPanel Orientation="Horizontal" />
+                                                </ItemsPanelTemplate>
+                                            </ItemsControl.ItemsPanel>
+                                            <ItemsControl.ItemTemplate>
+                                                <DataTemplate>
+                                                    <Border Background="{Binding BackgroundBrush}"
+                                                            BorderBrush="{Binding BorderBrush}"
+                                                            BorderThickness="1"
+                                                            CornerRadius="5"
+                                                            Padding="6,2"
+                                                            Margin="0,1,5,1">
+                                                        <TextBlock Text="{Binding Label}"
+                                                                   FontFamily="{Binding DataContext.SelectedFontFamily, RelativeSource={RelativeSource AncestorType=Window}}"
+                                                                   FontSize="{Binding DataContext.EffectiveBadgeFontSize, RelativeSource={RelativeSource AncestorType=Window}}"
+                                                                   FontWeight="Bold"
+                                                                   Foreground="{Binding TextBrush}" />
+                                                    </Border>
+                                                </DataTemplate>
+                                            </ItemsControl.ItemTemplate>
+                                        </ItemsControl>
+
+                                        <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                            <StackPanel.Style>
+                                                <Style TargetType="StackPanel">
+                                                    <Setter Property="Visibility" Value="Collapsed" />
+                                                    <Style.Triggers>
+                                                        <DataTrigger Binding="{Binding DataContext.HasActiveGpuBadges, RelativeSource={RelativeSource AncestorType=Window}}" Value="False">
+                                                            <Setter Property="Visibility" Value="Visible" />
+                                                        </DataTrigger>
+                                                    </Style.Triggers>
+                                                </Style>
+                                            </StackPanel.Style>
+                                            <ui:SymbolIcon Symbol="{Binding EffectiveSymbol}"
+                                                           FontSize="{Binding DataContext.EffectiveIconFontSize, RelativeSource={RelativeSource AncestorType=Window}}"
+                                                           Foreground="{Binding EffectiveLabelBrush}"
+                                                           Margin="0,0,6,0"
+                                                           Visibility="{Binding IsIconHeader, Converter={StaticResource BoolToVis}}" />
+                                            <TextBlock Text="{Binding DisplayLabel}"
+                                                       FontFamily="{Binding DataContext.SelectedFontFamily, RelativeSource={RelativeSource AncestorType=Window}}"
+                                                       FontSize="{Binding DataContext.EffectiveLabelFontSize, RelativeSource={RelativeSource AncestorType=Window}}"
+                                                       Foreground="{Binding EffectiveLabelBrush}"
+                                                       Margin="0,0,7,0"
+                                                       Visibility="{Binding IsTextHeader, Converter={StaticResource BoolToVis}}" />
+                                            <TextBlock Text="--"
+                                                       FontFamily="{Binding DataContext.SelectedFontFamily, RelativeSource={RelativeSource AncestorType=Window}}"
+                                                       FontSize="{Binding DataContext.EffectiveFontSize, RelativeSource={RelativeSource AncestorType=Window}}"
+                                                       Foreground="{Binding EffectiveValueBrush}" />
+                                        </StackPanel>
+                                    </StackPanel>
+                                </Grid>
+                            </Border>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+
+                <TextBlock Text="Kéo thông số vào đây hoặc chọn từ Bảng điều khiển"
+                           FontSize="12"
+                           Foreground="{Binding WidgetSecondaryTextBrush}"
+                           HorizontalAlignment="Center"
+                           VerticalAlignment="Center"
+                           TextWrapping="Wrap"
+                           TextAlignment="Center">
+                    <TextBlock.Style>
+                        <Style TargetType="TextBlock">
+                            <Setter Property="Visibility" Value="Collapsed" />
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding HasActiveMetrics}" Value="False">
+                                    <Setter Property="Visibility" Value="Visible" />
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </TextBlock.Style>
+                </TextBlock>
+            </Grid>
+        </Border>
+
+        <!-- Lớp trực quan kéo thả trên Widget: Vạch Drop Indicator phát sáng + Khung nét đứt + Ghost Preview -->
+        <Canvas x:Name="DragOverlayCanvas" IsHitTestVisible="False" ClipToBounds="True">
+            <!-- Khung nét đứt nhấp nháy tại vị trí sắp thả -->
+            <Rectangle x:Name="DropTargetDashRect"
+                       RadiusX="7" RadiusY="7"
+                       Stroke="#FF38BDF8"
+                       StrokeThickness="1.6"
+                       StrokeDashArray="4 2.5"
+                       Fill="#1A38BDF8"
+                       Visibility="Collapsed" />
+
+            <!-- Vạch phát sáng màu xanh nổi bật tại khe chèn -->
+            <Border x:Name="DropIndicatorBar"
+                    Width="4"
+                    CornerRadius="2"
+                    Background="#FF38BDF8"
+                    Visibility="Collapsed">
+                <Border.Effect>
+                    <DropShadowEffect ShadowDepth="0" BlurRadius="10" Color="#FF38BDF8" Opacity="0.95" />
+                </Border.Effect>
+            </Border>
+
+            <!-- Bản xem trước bán trong suốt (Ghost Preview) trượt mượt theo chuột -->
+            <Border x:Name="DragGhostPreview"
+                    Opacity="0.84"
+                    CornerRadius="8"
+                    BorderBrush="#CC60CDFF"
+                    BorderThickness="1.2"
+                    Background="#C8141822"
+                    Padding="2"
+                    Visibility="Collapsed">
+                <Border.Effect>
+                    <DropShadowEffect ShadowDepth="4" BlurRadius="14" Color="#000000" Opacity="0.65" />
+                </Border.Effect>
+                <Image x:Name="DragGhostImage" Stretch="None" />
+            </Border>
+        </Canvas>
+
+        <!-- Thanh nắm kéo di chuyển Widget tinh tế hiện khi di chuột (khi mở khóa) -->
+        <Border x:Name="TopMoveHandle"
+                VerticalAlignment="Top"
+                HorizontalAlignment="Center"
+                Width="56"
+                Height="10"
+                Margin="0,2,0,0"
+                CornerRadius="5"
+                Background="#55FFFFFF"
+                Cursor="SizeAll"
+                Visibility="Collapsed"
+                ToolTip="Kéo thanh này để di chuyển toàn bộ Widget"
+                MouseLeftButtonDown="TopMoveHandle_MouseLeftButtonDown" />
+
+        <!-- Viền gợi ý tinh tế khi di chuột qua lúc mở khóa -->
+        <Border x:Name="HoverGuideBorder"
+                CornerRadius="{Binding EffectiveWidgetCornerRadius}"
+                BorderBrush="#6660CDFF"
+                BorderThickness="1"
+                Background="#0A60CDFF"
+                IsHitTestVisible="False"
+                Visibility="Collapsed" />
+
+        <!-- Thông báo nhanh -->
+        <Border x:Name="StatusToastBorder"
+                HorizontalAlignment="Center"
+                VerticalAlignment="Center"
+                Background="#E6181A20"
+                BorderBrush="#8860CDFF"
+                BorderThickness="1"
+                CornerRadius="8"
+                Padding="10,5"
+                IsHitTestVisible="False"
+                Visibility="Collapsed">
+            <TextBlock x:Name="StatusToastTextBlock"
+                       FontSize="11.5"
+                       FontWeight="Medium"
+                       Foreground="White"
+                       TextWrapping="NoWrap" />
+        </Border>
+
+        <!-- 8 tay cầm co giãn 4 cạnh + 4 góc -->
+        <Grid Visibility="{Binding IsUnlocked, Converter={StaticResource BoolToVis}}">
+            <Thumb Style="{StaticResource ResizeThumbStyle}"
+                   Height="6" VerticalAlignment="Top" Margin="8,0,8,0"
+                   Cursor="SizeNS" DragDelta="ResizeTop_DragDelta" DragCompleted="Resize_DragCompleted" />
+            <Thumb Style="{StaticResource ResizeThumbStyle}"
+                   Height="6" VerticalAlignment="Bottom" Margin="8,0,8,0"
+                   Cursor="SizeNS" DragDelta="ResizeBottom_DragDelta" DragCompleted="Resize_DragCompleted" />
+            <Thumb Style="{StaticResource ResizeThumbStyle}"
+                   Width="6" HorizontalAlignment="Left" Margin="0,8,0,8"
+                   Cursor="SizeWE" DragDelta="ResizeLeft_DragDelta" DragCompleted="Resize_DragCompleted" />
+            <Thumb Style="{StaticResource ResizeThumbStyle}"
+                   Width="6" HorizontalAlignment="Right" Margin="0,8,0,8"
+                   Cursor="SizeWE" DragDelta="ResizeRight_DragDelta" DragCompleted="Resize_DragCompleted" />
+
+            <Thumb Style="{StaticResource ResizeThumbStyle}"
+                   Width="10" Height="10" HorizontalAlignment="Left" VerticalAlignment="Top"
+                   Cursor="SizeNWSE" DragDelta="ResizeTopLeft_DragDelta" DragCompleted="Resize_DragCompleted" />
+            <Thumb Style="{StaticResource ResizeThumbStyle}"
+                   Width="10" Height="10" HorizontalAlignment="Right" VerticalAlignment="Top"
+                   Cursor="SizeNESW" DragDelta="ResizeTopRight_DragDelta" DragCompleted="Resize_DragCompleted" />
+            <Thumb Style="{StaticResource ResizeThumbStyle}"
+                   Width="10" Height="10" HorizontalAlignment="Left" VerticalAlignment="Bottom"
+                   Cursor="SizeNESW" DragDelta="ResizeBottomLeft_DragDelta" DragCompleted="Resize_DragCompleted" />
+            <Thumb Style="{StaticResource ResizeThumbStyle}"
+                   Width="10" Height="10" HorizontalAlignment="Right" VerticalAlignment="Bottom"
+                   Cursor="SizeNWSE" DragDelta="ResizeBottomRight_DragDelta" DragCompleted="Resize_DragCompleted" />
+        </Grid>
+    </Grid>
+</Window>
