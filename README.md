@@ -4,12 +4,10 @@
 A modern **floating hardware monitoring & gaming overlay widget for Windows 10/11**. Designed with a sleek Windows 11 aesthetic, it replaces cluttered legacy configuration menus with intuitive **drag-and-drop** customization and complete visual freedom.
 Ứng dụng theo dõi thông số phần cứng và hiệu năng chơi game dạng **Widget nổi hiện đại cho Windows 10/11**. Thiết kế tối giản chuẩn Windows 11, thay thế cách cấu hình rườm rà truyền thống bằng thao tác **kéo thả trực quan** và tùy biến tự do.
 
-> <img width="427" height="435" alt="Screenshot 2026-11-24 142121" src="https://github.com/user-attachments/assets/479c4392-5692-4ad3-bb49-4b42a23a1a30" />
-> <img width="1125" height="782" alt="Screenshot 2026-11-24 142142" src="https://github.com/user-attachments/assets/b72a0547-e2ab-4345-9444-061ecea5262a" />
-> <img width="1121" height="778" alt="Screenshot 2026-11-24 142239" src="https://github.com/user-attachments/assets/0fb26b36-4a5c-42eb-9670-4252b52d0681" />
-> <img width="1118" height="781" alt="Screenshot 2026-11-24 142254" src="https://github.com/user-attachments/assets/d8624f34-e59c-4be4-8d51-3bb0045cb535" />
-> <img width="1121" height="782" alt="Screenshot 2026-11-24 142305" src="https://github.com/user-attachments/assets/64fd64f7-1ea8-43e9-a491-2327f1b3f21e" />
-
+> <img width="277" height="200" alt="Screenshot 2026-11-24 184520" src="https://github.com/user-attachments/assets/508bfc50-5576-4dd0-9308-36cfe4635b15" />
+> <img width="1919" height="1026" alt="Screenshot 2026-11-24 184544" src="https://github.com/user-attachments/assets/ca1f3134-6e2d-47d8-896a-86dc58607e78" />
+> <img width="1919" height="1030" alt="Screenshot 2026-11-24 184601" src="https://github.com/user-attachments/assets/2d42317f-23ca-4fe6-bf9a-8f8205ee3f13" />
+> <img width="1919" height="1032" alt="Screenshot 2026-11-24 184612" src="https://github.com/user-attachments/assets/a84acba3-af13-4315-872d-6d2e635e924f" />
 
 ---
 
