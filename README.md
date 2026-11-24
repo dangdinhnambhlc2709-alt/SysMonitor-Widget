@@ -1,5 +1,6 @@
 # SysMonitor-Widget
 # [SYSMONITOR-WIDGET]
+I'm an aspiring developer, and this is my first project. Any feedback or suggestions would be greatly appreciated!
 
 A modern **floating hardware monitoring & gaming overlay widget for Windows 10/11**. Designed with a sleek Windows 11 aesthetic, it replaces cluttered legacy configuration menus with intuitive **drag-and-drop** customization and complete visual freedom.
 Ứng dụng theo dõi thông số phần cứng và hiệu năng chơi game dạng **Widget nổi hiện đại cho Windows 10/11**. Thiết kế tối giản chuẩn Windows 11, thay thế cách cấu hình rườm rà truyền thống bằng thao tác **kéo thả trực quan** và tùy biến tự do.
