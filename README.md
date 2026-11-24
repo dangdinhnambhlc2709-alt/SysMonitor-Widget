@@ -46,7 +46,7 @@ A modern **floating hardware monitoring & gaming overlay widget for Windows 10/1
 ## Download & Installation
 
 1. Go to the [**Releases (Latest Version)**](https://github.com/dangdinhnambhlc2709-alt/SysMonitor-Widget/releases/latest) page.
-2. Download the `.exe` installer (e.g., `YourAppName_Setup_v1.0.0.exe`).
+2. Download the `.exe` installer (e.g., `SysMonitor-Widget-Setup_v1.0.0.exe`).
 3. Double-click the installer to set up and launch the app.
 
 ### First-Run Notes
