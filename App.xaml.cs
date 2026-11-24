@@ -26,7 +26,6 @@ public partial class App : Application
     private UpdateWindow? _updateWindow;
     private Forms.NotifyIcon? _trayIcon;
     private Forms.ToolStripMenuItem? _trayOpenItem;
-    private Forms.ToolStripMenuItem? _trayLockItem;
     private Forms.ToolStripMenuItem? _trayTopmostItem;
     private Forms.ToolStripMenuItem? _trayVisibilityItem;
     private Forms.ToolStripMenuItem? _trayResetFpsItem;
@@ -97,11 +96,6 @@ public partial class App : Application
 
         _viewModel.OpenSettingsRequested += ShowSettingsWindow;
         _viewModel.ExitAppRequested += ExitApplication;
-        _viewModel.ClickThroughChanged += locked =>
-        {
-            UpdateTrayMenuState();
-            _widgetWindow?.ApplyClickThrough(locked);
-        };
         _viewModel.WidgetTopmostChanged += topmost =>
         {
             UpdateTrayMenuState();
@@ -112,23 +106,36 @@ public partial class App : Application
         {
             UpdateTrayMenuState();
             if (_widgetWindow == null) return;
-            if (visible) _widgetWindow.Show();
-            else _widgetWindow.Hide();
+            if (visible)
+            {
+                _widgetWindow.Show();
+                _widgetWindow.RepositionToAnchor();
+            }
+            else
+            {
+                _widgetWindow.Hide();
+            }
         };
-        _viewModel.CenterWidgetRequested += () => _widgetWindow?.CenterOnPrimaryScreen();
-        _viewModel.BlurSettingsChanged += () => _widgetWindow?.RefreshDwmBlurEffect();
+        _viewModel.OverlayPositionChanged += () => _widgetWindow?.RepositionToAnchor();
+        _viewModel.ToggleOverlayHotkeySettingChanged += enabled =>
+        {
+            if (_hotkeyManager != null && _viewModel != null)
+                _viewModel.IsHotkeyRegistered = _hotkeyManager.SetToggleOverlayHotkeyEnabled(enabled);
+        };
         _viewModel.UpdateAvailableDetected += release =>
             Dispatcher.BeginInvoke(() => ShowUpdateWindow(release));
-        _viewModel.ResetFpsToastRequested += () =>
-            _widgetWindow?.ShowStatusToast(LocalizationService.Instance["ToastResetFps"]);
 
-        // 1. Cảm biến phần cứng mỗi 1 giây
+        // 1. Cảm biến phần cứng mỗi 1 giây + tải GPU thực tế cho bộ nhận diện Hybrid 2 GPU
         _hardwareService.SnapshotReady += snapshot =>
         {
             Dispatcher.BeginInvoke(DispatcherPriority.Normal, () =>
             {
                 _viewModel?.ApplySensorSnapshot(snapshot);
             });
+        };
+        _hardwareService.GpuActivityUpdated += activities =>
+        {
+            _gpuTechDetectorService?.UpdateGpuActivity(activities);
         };
 
         // 2. FPS & Đồ thị mỗi 500ms từ Intel PresentMon 2.x (ETW)
@@ -140,7 +147,7 @@ public partial class App : Application
             });
         };
 
-        // 3. Nhận diện công nghệ GPU mỗi 2.5 giây (an toàn Anti-Cheat)
+        // 3. Nhận diện công nghệ GPU 3 lớp mỗi 2.5 giây (an toàn Anti-Cheat)
         _gpuTechDetectorService.SnapshotReady += gpuTechSnap =>
         {
             Dispatcher.BeginInvoke(DispatcherPriority.Normal, () =>
@@ -152,31 +159,25 @@ public partial class App : Application
         SetupTrayIcon();
         LocalizationService.Instance.LanguageChanged += () => Dispatcher.BeginInvoke(UpdateTrayMenuState);
 
-        if (_viewModel.IsWidgetVisible)
-            _widgetWindow.Show();
-        else
-        {
-            _widgetWindow.Show();
+        // Khởi tạo cửa sổ OSD thuần túy (ShowActivated=False nên không bao giờ cướp tiêu điểm)
+        _widgetWindow.Show();
+        if (!_viewModel.IsWidgetVisible)
             _widgetWindow.Hide();
-        }
 
         _hotkeyManager = new GlobalHotkeyManager();
-        _hotkeyManager.ToggleClickThroughPressed += () =>
+        _hotkeyManager.ToggleOverlayPressed += () =>
         {
             Dispatcher.BeginInvoke(() =>
             {
-                if (_viewModel == null) return;
-                _viewModel.IsClickThrough = !_viewModel.IsClickThrough;
-                _widgetWindow?.ShowStatusToast(_viewModel.IsClickThrough
-                    ? LocalizationService.Instance["ToastLocked"]
-                    : LocalizationService.Instance["ToastUnlocked"]);
+                if (_viewModel != null)
+                    _viewModel.IsWidgetVisible = !_viewModel.IsWidgetVisible;
             });
         };
         _hotkeyManager.ResetFpsPressed += () =>
         {
             Dispatcher.BeginInvoke(() => _viewModel?.ResetFpsStats());
         };
-        _viewModel.IsHotkeyRegistered = _hotkeyManager.Register(_widgetWindow);
+        _viewModel.IsHotkeyRegistered = _hotkeyManager.Register(_widgetWindow, _viewModel.EnableToggleOverlayHotkey);
 
         _settingsWindow.Show();
         _settingsWindow.Activate();
@@ -217,14 +218,6 @@ public partial class App : Application
                 _viewModel.IsWidgetVisible = !_viewModel.IsWidgetVisible;
         });
         menu.Items.Add(_trayVisibilityItem);
-
-        _trayLockItem = new Forms.ToolStripMenuItem();
-        _trayLockItem.Click += (_, _) => Dispatcher.Invoke(() =>
-        {
-            if (_viewModel != null)
-                _viewModel.IsClickThrough = !_viewModel.IsClickThrough;
-        });
-        menu.Items.Add(_trayLockItem);
 
         _trayTopmostItem = new Forms.ToolStripMenuItem
         {
@@ -267,10 +260,9 @@ public partial class App : Application
             _trayOpenItem.Text = loc["TrayOpenSettings"];
 
         if (_trayVisibilityItem != null)
-            _trayVisibilityItem.Text = _viewModel.IsWidgetVisible ? loc["BtnHideWidget"] : loc["BtnShowWidget"];
-
-        if (_trayLockItem != null)
-            _trayLockItem.Text = _viewModel.IsClickThrough ? loc["TrayUnlock"] : loc["TrayLock"];
+            _trayVisibilityItem.Text = _viewModel.IsWidgetVisible
+                ? $"{loc["BtnHideWidget"]} (Ctrl + Shift + O)"
+                : $"{loc["BtnShowWidget"]} (Ctrl + Shift + O)";
 
         if (_trayTopmostItem != null)
         {
@@ -297,9 +289,7 @@ public partial class App : Application
         {
             var res = GetResourceStream(new Uri("pack://application:,,,/Assets/app.ico"));
             if (res?.Stream != null)
-            {
                 return new Icon(res.Stream);
-            }
         }
         catch { }
 
@@ -323,9 +313,6 @@ public partial class App : Application
         _updateWindow.Activate();
     }
 
-    /// <summary>
-    /// Đóng sạch PresentMon, cảm biến, hotkey và khay hệ thống trước khi khởi chạy Setup.exe cài đè.
-    /// </summary>
     private void PrepareForInstallerUpgrade()
     {
         _isExiting = true;
@@ -396,8 +383,8 @@ public partial class App : Application
         try
         {
             string dir = System.IO.Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-                "WinHardwareMonitor");
+                Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+                "SysMonitorWidget");
             System.IO.Directory.CreateDirectory(dir);
             string logPath = System.IO.Path.Combine(dir, "error.log");
             System.IO.File.AppendAllText(logPath, $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}]\n{ex}\n\n");

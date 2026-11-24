@@ -9,7 +9,7 @@ namespace WinHardwareMonitor.Controls;
 
 /// <summary>
 /// Biểu đồ đường FPS siêu nhẹ vẽ trực tiếp qua DrawingContext (OnRender), không phình VisualTree.
-/// Hỗ trợ hiển thị đồng thời đường FPS gốc và đường phụ FPS FrameGen.
+/// Tối ưu tái sử dụng Pen & Typeface đóng băng để tiêu thụ CPU/GPU gần như bằng 0.
 /// </summary>
 public class FpsGraphControl : FrameworkElement
 {
@@ -19,15 +19,15 @@ public class FpsGraphControl : FrameworkElement
 
     public static readonly DependencyProperty BaseLineBrushProperty =
         DependencyProperty.Register(nameof(BaseLineBrush), typeof(Brush), typeof(FpsGraphControl),
-            new FrameworkPropertyMetadata(new SolidColorBrush(Color.FromRgb(74, 222, 128)), FrameworkPropertyMetadataOptions.AffectsRender));
+            new FrameworkPropertyMetadata(Freeze(new SolidColorBrush(Color.FromRgb(74, 222, 128))), FrameworkPropertyMetadataOptions.AffectsRender));
 
     public static readonly DependencyProperty FrameGenLineBrushProperty =
         DependencyProperty.Register(nameof(FrameGenLineBrush), typeof(Brush), typeof(FpsGraphControl),
-            new FrameworkPropertyMetadata(new SolidColorBrush(Color.FromRgb(96, 205, 255)), FrameworkPropertyMetadataOptions.AffectsRender));
+            new FrameworkPropertyMetadata(Freeze(new SolidColorBrush(Color.FromRgb(96, 205, 255))), FrameworkPropertyMetadataOptions.AffectsRender));
 
     public static readonly DependencyProperty GuideBrushProperty =
         DependencyProperty.Register(nameof(GuideBrush), typeof(Brush), typeof(FpsGraphControl),
-            new FrameworkPropertyMetadata(new SolidColorBrush(Color.FromArgb(42, 255, 255, 255)), FrameworkPropertyMetadataOptions.AffectsRender));
+            new FrameworkPropertyMetadata(Freeze(new SolidColorBrush(Color.FromArgb(42, 255, 255, 255))), FrameworkPropertyMetadataOptions.AffectsRender));
 
     public IReadOnlyList<FpsGraphPoint>? Points
     {
@@ -55,6 +55,19 @@ public class FpsGraphControl : FrameworkElement
 
     private static readonly SolidColorBrush PlotBgBrush = Freeze(new SolidColorBrush(Color.FromArgb(28, 0, 0, 0)));
     private static readonly SolidColorBrush ScaleTextBrush = Freeze(new SolidColorBrush(Color.FromArgb(165, 255, 255, 255)));
+    private static readonly Typeface DefaultTypeface = new("Segoe UI");
+    private static readonly DashStyle FgDashStyle = FreezeDash(new DashStyle(new[] { 3.0, 2.0 }, 0));
+
+    private Brush? _cachedBaseBrushRef;
+    private Pen? _cachedBasePen;
+    private LinearGradientBrush? _cachedBaseFill;
+
+    private Brush? _cachedFgBrushRef;
+    private Pen? _cachedFgPen;
+
+    private Brush? _cachedGuideBrushRef;
+    private Pen? _cachedBorderPen;
+    private Pen? _cachedGridPen;
 
     protected override void OnRender(DrawingContext dc)
     {
@@ -65,12 +78,10 @@ public class FpsGraphControl : FrameworkElement
         if (w < 16 || h < 12)
             return;
 
-        // Nền biểu đồ bo nhẹ
-        dc.DrawRoundedRectangle(PlotBgBrush, new Pen(GuideBrush, 0.8), new Rect(0, 0, w, h), 5, 5);
+        EnsureGuidePens();
 
-        // Đường lưới ngang mờ giữa đồ thị
-        var gridPen = new Pen(GuideBrush, 0.6) { DashStyle = DashStyles.Dot };
-        dc.DrawLine(gridPen, new Point(2, h * 0.5), new Point(w - 2, h * 0.5));
+        dc.DrawRoundedRectangle(PlotBgBrush, _cachedBorderPen, new Rect(0, 0, w, h), 4, 4);
+        dc.DrawLine(_cachedGridPen!, new Point(2, h * 0.5), new Point(w - 2, h * 0.5));
 
         var pts = Points;
         if (pts == null || pts.Count < 2)
@@ -86,7 +97,6 @@ public class FpsGraphControl : FrameworkElement
             if (pts[i].FrameGenFps is double fg && fg > maxVal) maxVal = fg;
         }
 
-        // Làm tròn trần trục Y cho dễ nhìn (bội số của 30)
         double yMax = Math.Ceiling((maxVal * 1.12) / 30.0) * 30.0;
         if (yMax < 60) yMax = 60;
 
@@ -97,7 +107,6 @@ public class FpsGraphControl : FrameworkElement
         int count = pts.Count;
         double stepX = plotW / Math.Max(1, count - 1);
 
-        // Vẽ vùng tô chuyển sắc nhẹ + đường FPS gốc
         var baseStrokeGeo = new StreamGeometry();
         var baseFillGeo = new StreamGeometry();
 
@@ -129,26 +138,11 @@ public class FpsGraphControl : FrameworkElement
         baseStrokeGeo.Freeze();
         baseFillGeo.Freeze();
 
-        if (BaseLineBrush is SolidColorBrush baseSolid)
-        {
-            var grad = new LinearGradientBrush(
-                Color.FromArgb(72, baseSolid.Color.R, baseSolid.Color.G, baseSolid.Color.B),
-                Color.FromArgb(4, baseSolid.Color.R, baseSolid.Color.G, baseSolid.Color.B),
-                90);
-            grad.Freeze();
-            dc.DrawGeometry(grad, null, baseFillGeo);
-        }
+        EnsureBasePenAndFill();
+        if (_cachedBaseFill != null)
+            dc.DrawGeometry(_cachedBaseFill, null, baseFillGeo);
+        dc.DrawGeometry(null, _cachedBasePen!, baseStrokeGeo);
 
-        var basePen = new Pen(BaseLineBrush, 1.7)
-        {
-            LineJoin = PenLineJoin.Round,
-            StartLineCap = PenLineCap.Round,
-            EndLineCap = PenLineCap.Round
-        };
-        basePen.Freeze();
-        dc.DrawGeometry(null, basePen, baseStrokeGeo);
-
-        // Vẽ đường phụ FPS FrameGen nếu có dữ liệu
         bool hasAnyFg = false;
         var fgGeo = new StreamGeometry();
         using (var fgCtx = fgGeo.Open())
@@ -182,26 +176,78 @@ public class FpsGraphControl : FrameworkElement
         if (hasAnyFg)
         {
             fgGeo.Freeze();
-            var fgPen = new Pen(FrameGenLineBrush, 1.5)
-            {
-                LineJoin = PenLineJoin.Round,
-                DashStyle = new DashStyle(new[] { 3.0, 2.0 }, 0)
-            };
-            fgPen.Freeze();
-            dc.DrawGeometry(null, fgPen, fgGeo);
+            EnsureFgPen();
+            dc.DrawGeometry(null, _cachedFgPen!, fgGeo);
         }
 
-        // Nhãn mốc trần trục Y nhỏ góc trên phải
         double dpi = VisualTreeHelper.GetDpi(this).PixelsPerDip;
         var maxText = new FormattedText(
             $"{yMax:F0}",
             CultureInfo.InvariantCulture,
             FlowDirection.LeftToRight,
-            new Typeface("Segoe UI"),
+            DefaultTypeface,
             9.0,
             ScaleTextBrush,
             dpi);
         dc.DrawText(maxText, new Point(w - maxText.Width - 4, 1));
+    }
+
+    private void EnsureGuidePens()
+    {
+        var g = GuideBrush;
+        if (ReferenceEquals(_cachedGuideBrushRef, g) && _cachedBorderPen != null && _cachedGridPen != null)
+            return;
+
+        _cachedGuideBrushRef = g;
+        _cachedBorderPen = new Pen(g, 0.8);
+        _cachedBorderPen.Freeze();
+        _cachedGridPen = new Pen(g, 0.6) { DashStyle = DashStyles.Dot };
+        _cachedGridPen.Freeze();
+    }
+
+    private void EnsureBasePenAndFill()
+    {
+        var b = BaseLineBrush;
+        if (ReferenceEquals(_cachedBaseBrushRef, b) && _cachedBasePen != null)
+            return;
+
+        _cachedBaseBrushRef = b;
+        _cachedBasePen = new Pen(b, 1.6)
+        {
+            LineJoin = PenLineJoin.Round,
+            StartLineCap = PenLineCap.Round,
+            EndLineCap = PenLineCap.Round
+        };
+        _cachedBasePen.Freeze();
+
+        if (b is SolidColorBrush solid)
+        {
+            var grad = new LinearGradientBrush(
+                Color.FromArgb(64, solid.Color.R, solid.Color.G, solid.Color.B),
+                Color.FromArgb(4, solid.Color.R, solid.Color.G, solid.Color.B),
+                90);
+            grad.Freeze();
+            _cachedBaseFill = grad;
+        }
+        else
+        {
+            _cachedBaseFill = null;
+        }
+    }
+
+    private void EnsureFgPen()
+    {
+        var b = FrameGenLineBrush;
+        if (ReferenceEquals(_cachedFgBrushRef, b) && _cachedFgPen != null)
+            return;
+
+        _cachedFgBrushRef = b;
+        _cachedFgPen = new Pen(b, 1.45)
+        {
+            LineJoin = PenLineJoin.Round,
+            DashStyle = FgDashStyle
+        };
+        _cachedFgPen.Freeze();
     }
 
     private void DrawIdleHint(DrawingContext dc, double w, double h)
@@ -211,7 +257,7 @@ public class FpsGraphControl : FrameworkElement
             "--",
             CultureInfo.InvariantCulture,
             FlowDirection.LeftToRight,
-            new Typeface("Segoe UI"),
+            DefaultTypeface,
             10.0,
             ScaleTextBrush,
             dpi);
@@ -222,5 +268,11 @@ public class FpsGraphControl : FrameworkElement
     {
         brush.Freeze();
         return brush;
+    }
+
+    private static DashStyle FreezeDash(DashStyle style)
+    {
+        style.Freeze();
+        return style;
     }
 }

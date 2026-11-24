@@ -90,6 +90,7 @@ public sealed class HardwareMonitorService : IDisposable
     public string? InitError { get; private set; }
 
     public event Action<IReadOnlyDictionary<string, string>>? SnapshotReady;
+    public event Action<IReadOnlyList<GpuRuntimeActivity>>? GpuActivityUpdated;
 
     public void Initialize()
     {
@@ -890,6 +891,7 @@ public sealed class HardwareMonitorService : IDisposable
         }
 
         // --- GPUs ---
+        var gpuActivities = new List<GpuRuntimeActivity>(_gpus.Count);
         foreach (var gpu in _gpus)
         {
             var sensors = GetAllSensors(gpu.Hardware);
@@ -904,12 +906,23 @@ public sealed class HardwareMonitorService : IDisposable
                           ?? MaxPositiveSensor(sensors, SensorType.Temperature);
             result[$"gpu_{gpu.Index}_temp"] = gpuTemp.HasValue ? $"{gpuTemp.Value:F0}°C" : "--";
 
-            result[$"gpu_{gpu.Index}_vram"] = FormatGpuVram(sensors);
+            result[$"gpu_{gpu.Index}_vram"] = FormatGpuVram(sensors, out double vramUsedMb);
 
             var gpuPower = FindSensor(sensors, SensorType.Power, "GPU Package", "GPU Power", "GPU Core", "GPU Total")
                            ?? FirstValidSensor(sensors, SensorType.Power);
             result[$"gpu_{gpu.Index}_power"] = gpuPower.HasValue ? $"{gpuPower.Value:F1} W" : "--";
+
+            gpuActivities.Add(new GpuRuntimeActivity(
+                $"gpu_{gpu.Index}",
+                gpu.ShortName,
+                gpu.Vendor,
+                gpu.IsDiscrete,
+                gpuLoad ?? 0,
+                vramUsedMb));
         }
+
+        if (gpuActivities.Count > 0)
+            GpuActivityUpdated?.Invoke(gpuActivities);
 
         if (_gpus.Count == 0)
         {
@@ -1151,14 +1164,16 @@ public sealed class HardwareMonitorService : IDisposable
         return map;
     }
 
-    private static string FormatGpuVram(List<ISensor> sensors)
+    private static string FormatGpuVram(List<ISensor> sensors, out double usedMbOut)
     {
+        usedMbOut = 0;
         double? usedMb = FindSensor(sensors, SensorType.SmallData,
             "GPU Memory Used", "D3D Dedicated Memory Used", "D3D Shared Memory Used");
         double? totalMb = FindSensor(sensors, SensorType.SmallData, "GPU Memory Total");
 
         if (usedMb.HasValue)
         {
+            usedMbOut = Math.Max(0, usedMb.Value);
             if (totalMb.HasValue && totalMb.Value > 0)
                 return $"{usedMb.Value / 1024.0:F1}/{totalMb.Value / 1024.0:F0} GB";
 
@@ -1173,6 +1188,7 @@ public sealed class HardwareMonitorService : IDisposable
 
         if (usedGb.HasValue)
         {
+            usedMbOut = Math.Max(0, usedGb.Value * 1024.0);
             if (totalGb.HasValue && totalGb.Value > 0)
                 return $"{usedGb.Value:F1}/{totalGb.Value:F0} GB";
             return $"{usedGb.Value:F2} GB";

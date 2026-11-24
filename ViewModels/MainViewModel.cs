@@ -1,13 +1,10 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
-using System.IO;
 using System.Linq;
 using System.Windows;
 using System.Windows.Input;
 using System.Windows.Media;
-using System.Windows.Media.Imaging;
-using Microsoft.Win32;
 using WinHardwareMonitor.Models;
 using WinHardwareMonitor.Services;
 using Wpf.Ui.Controls;
@@ -50,21 +47,6 @@ public sealed class IconChoice : ObservableObject
     public void RefreshLocalization() => OnPropertyChanged(nameof(Name));
 }
 
-public sealed class StretchModeOption : ObservableObject
-{
-    public BackgroundImageStretchMode Mode { get; }
-    public string DisplayKey { get; }
-    public string DisplayName => LocalizationService.Instance[DisplayKey];
-
-    public StretchModeOption(BackgroundImageStretchMode mode, string displayKey)
-    {
-        Mode = mode;
-        DisplayKey = displayKey;
-    }
-
-    public void RefreshLocalization() => OnPropertyChanged(nameof(DisplayName));
-}
-
 public sealed class FontWeightOption : ObservableObject
 {
     public string Key { get; }
@@ -86,8 +68,7 @@ public sealed class FontWeightOption : ObservableObject
 
 public sealed class MainViewModel : ObservableObject
 {
-    private const double ScaleBaselineWidth = 410.0;
-    private const double ScaleBaselineHeight = 190.0;
+    private static readonly SolidColorBrush TransparentBrush = Freeze(new SolidColorBrush(Colors.Transparent));
 
     private readonly ConfigService _configService;
     private readonly HardwareMonitorService _hardwareService;
@@ -97,48 +78,65 @@ public sealed class MainViewModel : ObservableObject
     private readonly Dictionary<string, MetricItem> _metricsById = new();
     private readonly Dictionary<string, Dictionary<string, GameTechOverrideState>> _gameTechProfiles = new(StringComparer.OrdinalIgnoreCase);
 
-    private double _widgetLeft = -1;
-    private double _widgetTop = -1;
-    private double _widgetWidth = ScaleBaselineWidth;
-    private double _widgetHeight = ScaleBaselineHeight;
-    private double _backgroundOpacity = 78;
-    private string _backgroundColorHex = "#141419";
-    private string _textColorHex = "#FFFFFF";
+    private bool _isRestoring;
 
-    // Typography (Font, Size 10-36, Weight 7 levels)
+    // Ngôn ngữ & Tab
+    private LanguageOption _selectedLanguage;
+    private int _selectedTabIndex;
+    private int _rightInspectorTabIndex; // 0 = Lớp đang chọn, 1 = Kiểu chung & Khung
+
+    // Vị trí Overlay OSD thuần túy (9 điểm neo + X/Y + đa màn hình + Hotkey)
+    private OverlayAnchor _overlayAnchor = OverlayAnchor.TopLeft;
+    private double _overlayOffsetX = 16;
+    private double _overlayOffsetY = 16;
+    private MonitorOption? _selectedMonitor;
+    private bool _isWidgetTopmost = true;
+    private bool _isWidgetVisible = true;
+    private bool _enableToggleOverlayHotkey = true;
+    private bool _isHotkeyRegistered;
+
+    // Canvas thiết kế kiểu RTSS Overlay Editor
+    private bool _showEditorGrid = true;
+    private bool _snapToGrid = true;
+    private int _gridSnapSize = 8;
+    private double _cellPaddingH = 8;
+    private double _cellPaddingV = 4;
+    private double _globalLabelValueGap = 8;
+    private CellContentAlignment _globalContentAlignment = CellContentAlignment.InlineWithGap;
+    private OverlayLayerViewModel? _selectedLayer;
+
+    // Phông chữ & Kiểu dáng ô phẳng mặc định chung
     private FontFamily _selectedFontFamily = new("Segoe UI");
     private double _fontSize = 13;
     private FontWeightOption _selectedFontWeightOption;
+    private string _textColorHex = "#FFFFFF";
+    private string _labelColorHex = "#60CDFF";
+    private SolidColorBrush _globalValueBrush = Freeze(new SolidColorBrush(Colors.White));
+    private SolidColorBrush _globalLabelBrush = Freeze(new SolidColorBrush(Color.FromRgb(96, 205, 255)));
 
-    // Auto-scale content & 3 Win11 Blur Modes
-    private bool _autoScaleContent = true;
-    private double _contentScaleFactor = 1.0;
-    private WidgetBlurMode _blurMode = WidgetBlurMode.Off;
+    private string _defaultCellBgColorHex = "#0A0C10";
+    private double _defaultCellBgOpacity = 78;
+    private bool _defaultCellBorderEnabled = true;
+    private string _defaultCellBorderColorHex = "#FFFFFF";
+    private double _defaultCellBorderOpacity = 22;
+    private double _defaultCellBorderThickness = 1.0;
+    private double _defaultCellCornerRadius;
 
-    private double _cornerRadius = 14;
-    private bool _isClickThrough;
-    private bool _isWidgetTopmost = true;
-    private bool _isWidgetVisible = true;
-    private bool _isRestoring;
-    private bool _isHotkeyRegistered;
+    // Nền khung tổng bọc ngoài bảng Overlay
+    private bool _showOuterFrame;
+    private string _outerFrameBgColorHex = "#080A0E";
+    private double _outerFrameBgOpacity = 80;
+    private bool _outerFrameBorderEnabled = true;
+    private string _outerFrameBorderColorHex = "#FFFFFF";
+    private double _outerFrameBorderOpacity = 25;
+    private double _outerFrameBorderThickness = 1.0;
+    private double _outerFrameCornerRadius = 6;
+    private double _outerFramePadding = 6;
 
-    // Ngôn ngữ (10 ngôn ngữ)
-    private LanguageOption _selectedLanguage;
+    private SolidColorBrush _cachedOuterBgBrush = TransparentBrush;
+    private SolidColorBrush _cachedOuterBorderBrush = TransparentBrush;
 
-    // Ảnh nền PNG cho Widget
-    private string _backgroundImagePath = string.Empty;
-    private double _backgroundImageOpacity = 85;
-    private BackgroundImageStretchMode _backgroundImageStretch = BackgroundImageStretchMode.UniformToFill;
-    private ImageBrush? _cachedBackgroundImageBrush;
-
-    // Tab navigation & Per-Metric Customization
-    private int _selectedTabIndex;
-    private MetricItem? _selectedCustomizationMetric;
-    private bool _showOnlyActiveInCustomization;
-
-    // GPU Technologies & Badges & Per-Game Quick Override
-    private GpuTechMode _gpuTechMode = GpuTechMode.AutoAllGpus;
-    private DetectedGpuInfo? _selectedPrimaryGpu;
+    // Công nghệ GPU 3 lớp & Hybrid Laptop
     private bool _hideUnsupportedGpuTechs;
     private bool _useCustomGpuBadgeColor;
     private string _customGpuBadgeColorHex = "#60CDFF";
@@ -147,7 +145,7 @@ public sealed class MainViewModel : ObservableObject
     private bool _isGpuTechGameActive;
     private string _currentOverrideGameExe = string.Empty;
     private string _manualGameExeInput = string.Empty;
-    private HashSet<string> _lastAutoDetectedTechIds = new(StringComparer.OrdinalIgnoreCase);
+    private Dictionary<string, GpuTechDetectionSource> _lastAutoDetectedTechSources = new(StringComparer.OrdinalIgnoreCase);
 
     // FPS & PresentMon
     private bool _autoHideFpsWhenIdle;
@@ -165,7 +163,7 @@ public sealed class MainViewModel : ObservableObject
     private string _presentMonDownloadFeedback = string.Empty;
     private IReadOnlyList<FpsGraphPoint> _fpsGraphHistory = Array.Empty<FpsGraphPoint>();
 
-    // System, Update & Window behavior
+    // Hệ thống & Cập nhật
     private bool _runAtWindowsStartup;
     private bool _minimizeToTrayOnClose = true;
     private bool _autoCheckUpdatesOnStartup = true;
@@ -175,8 +173,8 @@ public sealed class MainViewModel : ObservableObject
 
     public ObservableCollection<MetricGroupViewModel> AvailableGroups { get; } = new();
     public ObservableCollection<MetricItem> AllMetrics { get; } = new();
-    public ObservableCollection<MetricItem> ActiveMetrics { get; } = new();
-    public ObservableCollection<MetricItem> FilteredCustomizationMetrics { get; } = new();
+    public ObservableCollection<OverlayLayerViewModel> OverlayLayers { get; } = new();
+    public ObservableCollection<MonitorOption> Monitors { get; } = new();
 
     public ObservableCollection<DetectedGpuInfo> DetectedGpus { get; } = new();
     public ObservableCollection<GpuTechVendorGroupViewModel> GpuTechGroups { get; } = new();
@@ -184,12 +182,15 @@ public sealed class MainViewModel : ObservableObject
     public ObservableCollection<ActiveGpuBadge> ActiveGpuBadges { get; } = new();
     public ObservableCollection<string> SavedGameProfileNames { get; } = new();
 
-    public IReadOnlyList<ColorPreset> TextColorPresets { get; }
+    public IReadOnlyList<ColorPreset> ColorPresets { get; }
+    public IReadOnlyList<ColorPreset> DarkBgPresets { get; }
     public IReadOnlyList<IconChoice> FluentIconChoices { get; }
     public IReadOnlyList<LanguageOption> SupportedLanguages => LocalizationService.Instance.SupportedLanguages;
-    public IReadOnlyList<StretchModeOption> StretchModeOptions { get; }
     public IReadOnlyList<FontFamily> InstalledFontFamilies { get; }
     public IReadOnlyList<FontWeightOption> FontWeightOptions { get; }
+    public IReadOnlyList<AlignmentOption> AlignmentOptions { get; }
+    public IReadOnlyList<DisplayModeOption> DisplayModeOptions { get; }
+    public IReadOnlyList<int> GridSnapOptions { get; } = new[] { 4, 8, 12, 16 };
 
     public bool IsAdministrator { get; }
     public string AdminStatusText => IsAdministrator
@@ -222,6 +223,13 @@ public sealed class MainViewModel : ObservableObject
         set => SetProperty(ref _selectedTabIndex, value);
     }
 
+    public int RightInspectorTabIndex
+    {
+        get => _rightInspectorTabIndex;
+        set => SetProperty(ref _rightInspectorTabIndex, value);
+    }
+
+    // --- Vị trí Overlay OSD & Hotkey ---
     public bool IsHotkeyRegistered
     {
         get => _isHotkeyRegistered;
@@ -232,33 +240,264 @@ public sealed class MainViewModel : ObservableObject
         }
     }
 
-    public string HotkeyStatusText => IsHotkeyRegistered
-        ? LocalizationService.Instance["HotkeyStatusOk"]
-        : LocalizationService.Instance["HotkeyStatusBusy"];
-
-    public MetricItem? SelectedCustomizationMetric
+    public bool EnableToggleOverlayHotkey
     {
-        get => _selectedCustomizationMetric;
+        get => _enableToggleOverlayHotkey;
         set
         {
-            if (SetProperty(ref _selectedCustomizationMetric, value))
-                OnPropertyChanged(nameof(HasSelectedCustomizationMetric));
+            if (SetProperty(ref _enableToggleOverlayHotkey, value))
+            {
+                ToggleOverlayHotkeySettingChanged?.Invoke(value);
+                OnPropertyChanged(nameof(HotkeyStatusText));
+                ScheduleConfigSave();
+            }
         }
     }
 
-    public bool HasSelectedCustomizationMetric => SelectedCustomizationMetric != null;
-
-    public bool ShowOnlyActiveInCustomization
+    public string HotkeyStatusText
     {
-        get => _showOnlyActiveInCustomization;
-        set
+        get
         {
-            if (SetProperty(ref _showOnlyActiveInCustomization, value))
-                RebuildFilteredCustomizationMetrics();
+            var loc = LocalizationService.Instance;
+            if (!EnableToggleOverlayHotkey)
+                return loc["HotkeyStatusDisabled"];
+            return IsHotkeyRegistered ? loc["HotkeyStatusOk"] : loc["HotkeyStatusBusy"];
         }
     }
 
-    // --- Typography Properties ---
+    public OverlayAnchor OverlayAnchor
+    {
+        get => _overlayAnchor;
+        set
+        {
+            if (SetProperty(ref _overlayAnchor, value))
+            {
+                NotifyAnchorProperties();
+                OverlayPositionChanged?.Invoke();
+                ScheduleConfigSave();
+            }
+        }
+    }
+
+    public bool IsAnchorTopLeft => _overlayAnchor == OverlayAnchor.TopLeft;
+    public bool IsAnchorTopCenter => _overlayAnchor == OverlayAnchor.TopCenter;
+    public bool IsAnchorTopRight => _overlayAnchor == OverlayAnchor.TopRight;
+    public bool IsAnchorMiddleLeft => _overlayAnchor == OverlayAnchor.MiddleLeft;
+    public bool IsAnchorMiddleCenter => _overlayAnchor == OverlayAnchor.MiddleCenter;
+    public bool IsAnchorMiddleRight => _overlayAnchor == OverlayAnchor.MiddleRight;
+    public bool IsAnchorBottomLeft => _overlayAnchor == OverlayAnchor.BottomLeft;
+    public bool IsAnchorBottomCenter => _overlayAnchor == OverlayAnchor.BottomCenter;
+    public bool IsAnchorBottomRight => _overlayAnchor == OverlayAnchor.BottomRight;
+
+    public double OverlayOffsetX
+    {
+        get => _overlayOffsetX;
+        set
+        {
+            double clamped = Math.Clamp(Math.Round(value), 0, 800);
+            if (SetProperty(ref _overlayOffsetX, clamped))
+            {
+                OnPropertyChanged(nameof(OverlayOffsetXLabel));
+                OverlayPositionChanged?.Invoke();
+                ScheduleConfigSave();
+            }
+        }
+    }
+
+    public string OverlayOffsetXLabel => $"{OverlayOffsetX:F0} px";
+
+    public double OverlayOffsetY
+    {
+        get => _overlayOffsetY;
+        set
+        {
+            double clamped = Math.Clamp(Math.Round(value), 0, 800);
+            if (SetProperty(ref _overlayOffsetY, clamped))
+            {
+                OnPropertyChanged(nameof(OverlayOffsetYLabel));
+                OverlayPositionChanged?.Invoke();
+                ScheduleConfigSave();
+            }
+        }
+    }
+
+    public string OverlayOffsetYLabel => $"{OverlayOffsetY:F0} px";
+
+    public MonitorOption? SelectedMonitor
+    {
+        get => _selectedMonitor;
+        set
+        {
+            if (SetProperty(ref _selectedMonitor, value))
+            {
+                OverlayPositionChanged?.Invoke();
+                ScheduleConfigSave();
+            }
+        }
+    }
+
+    public bool IsWidgetTopmost
+    {
+        get => _isWidgetTopmost;
+        set
+        {
+            if (SetProperty(ref _isWidgetTopmost, value))
+            {
+                WidgetTopmostChanged?.Invoke(value);
+                ScheduleConfigSave();
+            }
+        }
+    }
+
+    public bool IsWidgetVisible
+    {
+        get => _isWidgetVisible;
+        set
+        {
+            if (SetProperty(ref _isWidgetVisible, value))
+            {
+                OnPropertyChanged(nameof(WidgetVisibilityButtonText));
+                WidgetVisibilityChanged?.Invoke(value);
+                ScheduleConfigSave();
+            }
+        }
+    }
+
+    public string WidgetVisibilityButtonText => IsWidgetVisible
+        ? LocalizationService.Instance["BtnHideWidget"]
+        : LocalizationService.Instance["BtnShowWidget"];
+
+    // --- Thiết lập Canvas kiểu RTSS Overlay Editor ---
+    public bool ShowEditorGrid
+    {
+        get => _showEditorGrid;
+        set
+        {
+            if (SetProperty(ref _showEditorGrid, value))
+            {
+                EditorCanvasGridChanged?.Invoke();
+                ScheduleConfigSave();
+            }
+        }
+    }
+
+    public bool SnapToGrid
+    {
+        get => _snapToGrid;
+        set
+        {
+            if (SetProperty(ref _snapToGrid, value))
+                ScheduleConfigSave();
+        }
+    }
+
+    public int GridSnapSize
+    {
+        get => _gridSnapSize;
+        set
+        {
+            int norm = value is 4 or 8 or 12 or 16 ? value : 8;
+            if (SetProperty(ref _gridSnapSize, norm))
+            {
+                EditorCanvasGridChanged?.Invoke();
+                ScheduleConfigSave();
+            }
+        }
+    }
+
+    public string LayerCountText => LocalizationService.Instance.Format("LayerCountFormat", OverlayLayers.Count);
+
+    public OverlayLayerViewModel? SelectedLayer
+    {
+        get => _selectedLayer;
+        set
+        {
+            if (ReferenceEquals(_selectedLayer, value)) return;
+            if (_selectedLayer != null) _selectedLayer.IsSelected = false;
+            _selectedLayer = value;
+            if (_selectedLayer != null) _selectedLayer.IsSelected = true;
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(HasSelectedLayer));
+            OnPropertyChanged(nameof(HasNoSelectedLayer));
+            OnPropertyChanged(nameof(SelectedLayerStatusBarText));
+        }
+    }
+
+    public bool HasSelectedLayer => _selectedLayer != null;
+    public bool HasNoSelectedLayer => _selectedLayer == null;
+
+    public string SelectedLayerStatusBarText => _selectedLayer != null
+        ? $"{_selectedLayer.LayerTitle}  •  {_selectedLayer.GeometrySummary}"
+        : LocalizationService.Instance["CanvasStatusIdle"];
+
+    public double CellPaddingH
+    {
+        get => _cellPaddingH;
+        set
+        {
+            double clamped = Math.Clamp(Math.Round(value), 0, 24);
+            if (SetProperty(ref _cellPaddingH, clamped))
+            {
+                OnPropertyChanged(nameof(CellPaddingHLabel));
+                OnPropertyChanged(nameof(EffectiveCellPadding));
+                RefreshAllLayerVisuals();
+                ScheduleConfigSave();
+            }
+        }
+    }
+
+    public string CellPaddingHLabel => $"{CellPaddingH:F0} px";
+
+    public double CellPaddingV
+    {
+        get => _cellPaddingV;
+        set
+        {
+            double clamped = Math.Clamp(Math.Round(value), 0, 20);
+            if (SetProperty(ref _cellPaddingV, clamped))
+            {
+                OnPropertyChanged(nameof(CellPaddingVLabel));
+                OnPropertyChanged(nameof(EffectiveCellPadding));
+                RefreshAllLayerVisuals();
+                ScheduleConfigSave();
+            }
+        }
+    }
+
+    public string CellPaddingVLabel => $"{CellPaddingV:F0} px";
+    public Thickness EffectiveCellPadding => new(_cellPaddingH, _cellPaddingV, _cellPaddingH, _cellPaddingV);
+
+    public double GlobalLabelValueGap
+    {
+        get => _globalLabelValueGap;
+        set
+        {
+            double clamped = Math.Clamp(Math.Round(value), 0, 60);
+            if (SetProperty(ref _globalLabelValueGap, clamped))
+            {
+                OnPropertyChanged(nameof(GlobalLabelValueGapLabel));
+                RefreshAllLayerVisuals();
+                ScheduleConfigSave();
+            }
+        }
+    }
+
+    public string GlobalLabelValueGapLabel => $"{GlobalLabelValueGap:F0} px";
+
+    public CellContentAlignment GlobalContentAlignment
+    {
+        get => _globalContentAlignment;
+        set
+        {
+            if (SetProperty(ref _globalContentAlignment, value))
+            {
+                RefreshAllLayerVisuals();
+                ScheduleConfigSave();
+            }
+        }
+    }
+
+    // --- Phông chữ & Màu sắc mặc định chung ---
     public FontFamily SelectedFontFamily
     {
         get => _selectedFontFamily;
@@ -286,171 +525,342 @@ public sealed class MainViewModel : ObservableObject
     public FontWeight WidgetValueFontWeight => _selectedFontWeightOption.Weight;
     public FontWeight WidgetLabelFontWeight => _selectedFontWeightOption.LabelWeight;
 
-    // --- Auto-Scale Content Properties ---
-    public bool AutoScaleContent
+    public double FontSize
     {
-        get => _autoScaleContent;
+        get => _fontSize;
         set
         {
-            if (SetProperty(ref _autoScaleContent, value))
+            double clamped = Math.Clamp(Math.Round(value), 10, 36);
+            if (SetProperty(ref _fontSize, clamped))
             {
-                RecalculateContentScale(_widgetWidth, _widgetHeight);
+                OnPropertyChanged(nameof(FontSizeLabel));
+                OnPropertyChanged(nameof(WidgetBadgeFontSize));
+                RefreshAllLayerVisuals();
                 ScheduleConfigSave();
             }
         }
     }
 
-    public double ContentScaleFactor
-    {
-        get => _contentScaleFactor;
-        private set
-        {
-            if (Math.Abs(_contentScaleFactor - value) > 0.004)
-            {
-                _contentScaleFactor = value;
-                OnPropertyChanged();
-                OnPropertyChanged(nameof(ContentScalePercentText));
-                NotifyScaledMetricsChanged();
-                RefreshAllMetricsInheritedTheme();
-            }
-        }
-    }
+    public string FontSizeLabel => $"{FontSize:F0} px";
+    public double WidgetBadgeFontSize => Math.Max(9.5, Math.Round(FontSize * 0.80, 1));
 
-    public string ContentScalePercentText => $"{ContentScaleFactor * 100:F0}%";
-
-    // --- 3 Windows 11 Widget Blur Modes ---
-    public WidgetBlurMode BlurMode
+    public string TextColorHex
     {
-        get => _blurMode;
+        get => _textColorHex;
         set
         {
-            if (SetProperty(ref _blurMode, value))
+            string norm = NormalizeHex(value);
+            if (SetProperty(ref _textColorHex, norm) && MetricItem.TryParseHex(norm, out var c))
             {
-                OnPropertyChanged(nameof(IsBlurOff));
-                OnPropertyChanged(nameof(IsSoftGlass));
-                OnPropertyChanged(nameof(IsFrostedGlass));
-                OnPropertyChanged(nameof(WidgetBackgroundBrush));
-                OnPropertyChanged(nameof(WidgetBorderBrush));
-                OnPropertyChanged(nameof(WidgetBorderThickness));
-                OnPropertyChanged(nameof(EffectiveWidgetCornerRadius));
-                OnPropertyChanged(nameof(SoftGlassSheenBrush));
-                OnPropertyChanged(nameof(WidgetTextShadowOpacity));
-                BlurSettingsChanged?.Invoke();
+                _globalValueBrush = Freeze(new SolidColorBrush(c));
+                OnPropertyChanged(nameof(GlobalValueBrush));
+                RefreshAllLayerVisuals();
                 ScheduleConfigSave();
             }
         }
     }
 
-    public bool IsBlurOff
+    public string LabelColorHex
     {
-        get => _blurMode == WidgetBlurMode.Off;
-        set { if (value) BlurMode = WidgetBlurMode.Off; }
-    }
-
-    public bool IsSoftGlass
-    {
-        get => _blurMode == WidgetBlurMode.SoftGlass;
-        set { if (value) BlurMode = WidgetBlurMode.SoftGlass; }
-    }
-
-    public bool IsFrostedGlass
-    {
-        get => _blurMode == WidgetBlurMode.FrostedGlass;
-        set { if (value) BlurMode = WidgetBlurMode.FrostedGlass; }
-    }
-
-    /// <summary>
-    /// Lớp ánh bóng khúc xạ bên trong bề mặt cho chế độ Kính mềm (Liquid Glass / Soft Glass),
-    /// mô phỏng chính xác ánh sáng phản xạ mép trên và đáy của khối kính trong suốt.
-    /// </summary>
-    public Brush SoftGlassSheenBrush
-    {
-        get
-        {
-            var grad = new LinearGradientBrush
-            {
-                StartPoint = new Point(0, 0),
-                EndPoint = new Point(0.15, 1)
-            };
-            if (IsLightBackground)
-            {
-                grad.GradientStops.Add(new GradientStop(Color.FromArgb(120, 255, 255, 255), 0.0));
-                grad.GradientStops.Add(new GradientStop(Color.FromArgb(24, 255, 255, 255), 0.24));
-                grad.GradientStops.Add(new GradientStop(Color.FromArgb(0, 255, 255, 255), 0.55));
-                grad.GradientStops.Add(new GradientStop(Color.FromArgb(46, 255, 255, 255), 1.0));
-            }
-            else
-            {
-                grad.GradientStops.Add(new GradientStop(Color.FromArgb(72, 255, 255, 255), 0.0));
-                grad.GradientStops.Add(new GradientStop(Color.FromArgb(16, 224, 242, 254), 0.22));
-                grad.GradientStops.Add(new GradientStop(Color.FromArgb(0, 255, 255, 255), 0.54));
-                grad.GradientStops.Add(new GradientStop(Color.FromArgb(34, 255, 255, 255), 1.0));
-            }
-            grad.Freeze();
-            return grad;
-        }
-    }
-
-    // --- PNG Background Image Properties ---
-    public string BackgroundImagePath
-    {
-        get => _backgroundImagePath;
+        get => _labelColorHex;
         set
         {
-            string normalized = value?.Trim() ?? string.Empty;
-            if (SetProperty(ref _backgroundImagePath, normalized))
+            string norm = NormalizeHex(value);
+            if (SetProperty(ref _labelColorHex, norm) && MetricItem.TryParseHex(norm, out var c))
             {
-                RebuildBackgroundImageBrush();
-                OnPropertyChanged(nameof(HasBackgroundImage));
-                OnPropertyChanged(nameof(BackgroundImageDisplayName));
+                _globalLabelBrush = Freeze(new SolidColorBrush(c));
+                OnPropertyChanged(nameof(GlobalLabelBrush));
+                RefreshAllLayerVisuals();
                 ScheduleConfigSave();
             }
         }
     }
 
-    public bool HasBackgroundImage => !string.IsNullOrWhiteSpace(_backgroundImagePath) && File.Exists(_backgroundImagePath);
+    public SolidColorBrush GlobalValueBrush => _globalValueBrush;
+    public SolidColorBrush GlobalLabelBrush => _globalLabelBrush;
 
-    public string BackgroundImageDisplayName => HasBackgroundImage
-        ? Path.GetFileName(_backgroundImagePath)
-        : LocalizationService.Instance["BgImageNone"];
-
-    public double BackgroundImageOpacity
+    // --- Kiểu dáng ô phẳng mặc định chung ---
+    public string DefaultCellBgColorHex
     {
-        get => _backgroundImageOpacity;
+        get => _defaultCellBgColorHex;
+        set
+        {
+            string norm = NormalizeHex(value);
+            if (SetProperty(ref _defaultCellBgColorHex, norm) && MetricItem.TryParseHex(norm, out _))
+            {
+                OnPropertyChanged(nameof(DefaultCellBgPreviewBrush));
+                RefreshAllLayerVisuals();
+                ScheduleConfigSave();
+            }
+        }
+    }
+
+    public SolidColorBrush DefaultCellBgPreviewBrush => CreateFrozenBrush(_defaultCellBgColorHex, Color.FromRgb(10, 12, 16));
+
+    public double DefaultCellBgOpacity
+    {
+        get => _defaultCellBgOpacity;
         set
         {
             double clamped = Math.Clamp(Math.Round(value), 0, 100);
-            if (SetProperty(ref _backgroundImageOpacity, clamped))
+            if (SetProperty(ref _defaultCellBgOpacity, clamped))
             {
-                RebuildBackgroundImageBrush();
-                OnPropertyChanged(nameof(BackgroundImageOpacityLabel));
+                OnPropertyChanged(nameof(DefaultCellBgOpacityLabel));
+                RefreshAllLayerVisuals();
                 ScheduleConfigSave();
             }
         }
     }
 
-    public string BackgroundImageOpacityLabel => $"{BackgroundImageOpacity:F0}%";
+    public string DefaultCellBgOpacityLabel => $"{DefaultCellBgOpacity:F0}%";
 
-    public BackgroundImageStretchMode BackgroundImageStretch
+    public bool DefaultCellBorderEnabled
     {
-        get => _backgroundImageStretch;
+        get => _defaultCellBorderEnabled;
         set
         {
-            if (SetProperty(ref _backgroundImageStretch, value))
+            if (SetProperty(ref _defaultCellBorderEnabled, value))
             {
-                RebuildBackgroundImageBrush();
+                RefreshAllLayerVisuals();
                 ScheduleConfigSave();
             }
         }
     }
 
-    public ImageBrush? WidgetBackgroundImageBrush
+    public string DefaultCellBorderColorHex
     {
-        get => _cachedBackgroundImageBrush;
-        private set => SetProperty(ref _cachedBackgroundImageBrush, value);
+        get => _defaultCellBorderColorHex;
+        set
+        {
+            string norm = NormalizeHex(value);
+            if (SetProperty(ref _defaultCellBorderColorHex, norm) && MetricItem.TryParseHex(norm, out _))
+            {
+                OnPropertyChanged(nameof(DefaultCellBorderPreviewBrush));
+                RefreshAllLayerVisuals();
+                ScheduleConfigSave();
+            }
+        }
     }
 
-    // --- GPU Tech Badges & Quick Override Properties ---
+    public SolidColorBrush DefaultCellBorderPreviewBrush => CreateFrozenBrush(_defaultCellBorderColorHex, Colors.White);
+
+    public double DefaultCellBorderOpacity
+    {
+        get => _defaultCellBorderOpacity;
+        set
+        {
+            double clamped = Math.Clamp(Math.Round(value), 0, 100);
+            if (SetProperty(ref _defaultCellBorderOpacity, clamped))
+            {
+                OnPropertyChanged(nameof(DefaultCellBorderOpacityLabel));
+                RefreshAllLayerVisuals();
+                ScheduleConfigSave();
+            }
+        }
+    }
+
+    public string DefaultCellBorderOpacityLabel => $"{DefaultCellBorderOpacity:F0}%";
+
+    public double DefaultCellBorderThickness
+    {
+        get => _defaultCellBorderThickness;
+        set
+        {
+            double clamped = Math.Clamp(Math.Round(value * 2.0) / 2.0, 0.5, 4.0);
+            if (SetProperty(ref _defaultCellBorderThickness, clamped))
+            {
+                OnPropertyChanged(nameof(DefaultCellBorderThicknessLabel));
+                RefreshAllLayerVisuals();
+                ScheduleConfigSave();
+            }
+        }
+    }
+
+    public string DefaultCellBorderThicknessLabel => $"{DefaultCellBorderThickness:F1} px";
+
+    public double DefaultCellCornerRadius
+    {
+        get => _defaultCellCornerRadius;
+        set
+        {
+            double clamped = Math.Clamp(Math.Round(value), 0, 20);
+            if (SetProperty(ref _defaultCellCornerRadius, clamped))
+            {
+                OnPropertyChanged(nameof(DefaultCellCornerRadiusLabel));
+                RefreshAllLayerVisuals();
+                ScheduleConfigSave();
+            }
+        }
+    }
+
+    public string DefaultCellCornerRadiusLabel => $"{DefaultCellCornerRadius:F0} px";
+
+    // --- Nền khung tổng bọc ngoài bảng Overlay ---
+    public bool ShowOuterFrame
+    {
+        get => _showOuterFrame;
+        set
+        {
+            if (SetProperty(ref _showOuterFrame, value))
+            {
+                RebuildOuterFrameVisuals();
+                ScheduleConfigSave();
+            }
+        }
+    }
+
+    public string OuterFrameBgColorHex
+    {
+        get => _outerFrameBgColorHex;
+        set
+        {
+            string norm = NormalizeHex(value);
+            if (SetProperty(ref _outerFrameBgColorHex, norm) && MetricItem.TryParseHex(norm, out _))
+            {
+                OnPropertyChanged(nameof(OuterFrameBgPreviewBrush));
+                RebuildOuterFrameVisuals();
+                ScheduleConfigSave();
+            }
+        }
+    }
+
+    public SolidColorBrush OuterFrameBgPreviewBrush => CreateFrozenBrush(_outerFrameBgColorHex, Color.FromRgb(8, 10, 14));
+
+    public double OuterFrameBgOpacity
+    {
+        get => _outerFrameBgOpacity;
+        set
+        {
+            double clamped = Math.Clamp(Math.Round(value), 0, 100);
+            if (SetProperty(ref _outerFrameBgOpacity, clamped))
+            {
+                OnPropertyChanged(nameof(OuterFrameBgOpacityLabel));
+                RebuildOuterFrameVisuals();
+                ScheduleConfigSave();
+            }
+        }
+    }
+
+    public string OuterFrameBgOpacityLabel => $"{OuterFrameBgOpacity:F0}%";
+
+    public bool OuterFrameBorderEnabled
+    {
+        get => _outerFrameBorderEnabled;
+        set
+        {
+            if (SetProperty(ref _outerFrameBorderEnabled, value))
+            {
+                RebuildOuterFrameVisuals();
+                ScheduleConfigSave();
+            }
+        }
+    }
+
+    public string OuterFrameBorderColorHex
+    {
+        get => _outerFrameBorderColorHex;
+        set
+        {
+            string norm = NormalizeHex(value);
+            if (SetProperty(ref _outerFrameBorderColorHex, norm) && MetricItem.TryParseHex(norm, out _))
+            {
+                OnPropertyChanged(nameof(OuterFrameBorderPreviewBrush));
+                RebuildOuterFrameVisuals();
+                ScheduleConfigSave();
+            }
+        }
+    }
+
+    public SolidColorBrush OuterFrameBorderPreviewBrush => CreateFrozenBrush(_outerFrameBorderColorHex, Colors.White);
+
+    public double OuterFrameBorderOpacity
+    {
+        get => _outerFrameBorderOpacity;
+        set
+        {
+            double clamped = Math.Clamp(Math.Round(value), 0, 100);
+            if (SetProperty(ref _outerFrameBorderOpacity, clamped))
+            {
+                OnPropertyChanged(nameof(OuterFrameBorderOpacityLabel));
+                RebuildOuterFrameVisuals();
+                ScheduleConfigSave();
+            }
+        }
+    }
+
+    public string OuterFrameBorderOpacityLabel => $"{OuterFrameBorderOpacity:F0}%";
+
+    public double OuterFrameBorderThickness
+    {
+        get => _outerFrameBorderThickness;
+        set
+        {
+            double clamped = Math.Clamp(Math.Round(value * 2.0) / 2.0, 0.5, 4.0);
+            if (SetProperty(ref _outerFrameBorderThickness, clamped))
+            {
+                OnPropertyChanged(nameof(OuterFrameBorderThicknessLabel));
+                RebuildOuterFrameVisuals();
+                ScheduleConfigSave();
+            }
+        }
+    }
+
+    public string OuterFrameBorderThicknessLabel => $"{OuterFrameBorderThickness:F1} px";
+
+    public double OuterFrameCornerRadius
+    {
+        get => _outerFrameCornerRadius;
+        set
+        {
+            double clamped = Math.Clamp(Math.Round(value), 0, 28);
+            if (SetProperty(ref _outerFrameCornerRadius, clamped))
+            {
+                OnPropertyChanged(nameof(OuterFrameCornerRadiusLabel));
+                RebuildOuterFrameVisuals();
+                ScheduleConfigSave();
+            }
+        }
+    }
+
+    public string OuterFrameCornerRadiusLabel => $"{OuterFrameCornerRadius:F0} px";
+
+    public double OuterFramePadding
+    {
+        get => _outerFramePadding;
+        set
+        {
+            double clamped = Math.Clamp(Math.Round(value), 0, 24);
+            if (SetProperty(ref _outerFramePadding, clamped))
+            {
+                OnPropertyChanged(nameof(OuterFramePaddingLabel));
+                RebuildOuterFrameVisuals();
+                ScheduleConfigSave();
+            }
+        }
+    }
+
+    public string OuterFramePaddingLabel => $"{OuterFramePadding:F0} px";
+
+    public SolidColorBrush EffectiveOuterFrameBackground => _cachedOuterBgBrush;
+    public SolidColorBrush EffectiveOuterFrameBorderBrush => _cachedOuterBorderBrush;
+    public Thickness EffectiveOuterFrameBorderThickness => (_showOuterFrame && _outerFrameBorderEnabled) ? new Thickness(_outerFrameBorderThickness) : new Thickness(0);
+    public CornerRadius EffectiveOuterFrameCornerRadius => _showOuterFrame ? new CornerRadius(_outerFrameCornerRadius) : new CornerRadius(0);
+    public Thickness EffectiveOuterFramePadding => _showOuterFrame ? new Thickness(_outerFramePadding) : new Thickness(0);
+
+    // --- Công nghệ GPU & Huy hiệu ---
+    public bool HideUnsupportedGpuTechs
+    {
+        get => _hideUnsupportedGpuTechs;
+        set
+        {
+            if (SetProperty(ref _hideUnsupportedGpuTechs, value))
+            {
+                UpdateGpuVendorSupportStates();
+                ScheduleConfigSave();
+            }
+        }
+    }
+
     public bool UseCustomGpuBadgeColor
     {
         get => _useCustomGpuBadgeColor;
@@ -477,14 +887,11 @@ public sealed class MainViewModel : ObservableObject
         set
         {
             string norm = NormalizeHex(value);
-            if (SetProperty(ref _customGpuBadgeColorHex, norm))
+            if (SetProperty(ref _customGpuBadgeColorHex, norm) && MetricItem.TryParseHex(norm, out _))
             {
-                if (MetricItem.TryParseHex(norm, out _))
-                {
-                    OnPropertyChanged(nameof(CustomGpuBadgePreviewBrush));
-                    RebuildActiveGpuBadges();
-                    ScheduleConfigSave();
-                }
+                OnPropertyChanged(nameof(CustomGpuBadgePreviewBrush));
+                RebuildActiveGpuBadges();
+                ScheduleConfigSave();
             }
         }
     }
@@ -527,7 +934,7 @@ public sealed class MainViewModel : ObservableObject
         ? LocalizationService.Instance.Format("OverrideProfileFormat", _currentOverrideGameExe)
         : LocalizationService.Instance["OverrideNoGame"];
 
-    // --- FPS Properties ---
+    // --- FPS & PresentMon ---
     public bool AutoHideFpsWhenIdle
     {
         get => _autoHideFpsWhenIdle;
@@ -563,28 +970,24 @@ public sealed class MainViewModel : ObservableObject
             if (SetProperty(ref _fpsGraphHeight, clamped))
             {
                 OnPropertyChanged(nameof(FpsGraphHeightLabel));
-                OnPropertyChanged(nameof(EffectiveFpsGraphHeight));
+                RefreshAllLayerVisuals();
                 ScheduleConfigSave();
             }
         }
     }
 
     public string FpsGraphHeightLabel => $"{FpsGraphHeight:F0} px";
-    public double EffectiveFpsGraphHeight => Math.Clamp(Math.Round(FpsGraphHeight * ContentScaleFactor), 22, 260);
 
     public string FpsGraphBaseColorHex
     {
         get => _fpsGraphBaseColorHex;
         set
         {
-            string normalized = NormalizeHex(value);
-            if (SetProperty(ref _fpsGraphBaseColorHex, normalized))
+            string norm = NormalizeHex(value);
+            if (SetProperty(ref _fpsGraphBaseColorHex, norm) && MetricItem.TryParseHex(norm, out _))
             {
-                if (MetricItem.TryParseHex(normalized, out _))
-                {
-                    OnPropertyChanged(nameof(FpsGraphBaseBrush));
-                    ScheduleConfigSave();
-                }
+                OnPropertyChanged(nameof(FpsGraphBaseBrush));
+                ScheduleConfigSave();
             }
         }
     }
@@ -594,14 +997,11 @@ public sealed class MainViewModel : ObservableObject
         get => _fpsGraphFrameGenColorHex;
         set
         {
-            string normalized = NormalizeHex(value);
-            if (SetProperty(ref _fpsGraphFrameGenColorHex, normalized))
+            string norm = NormalizeHex(value);
+            if (SetProperty(ref _fpsGraphFrameGenColorHex, norm) && MetricItem.TryParseHex(norm, out _))
             {
-                if (MetricItem.TryParseHex(normalized, out _))
-                {
-                    OnPropertyChanged(nameof(FpsGraphFrameGenBrush));
-                    ScheduleConfigSave();
-                }
+                OnPropertyChanged(nameof(FpsGraphFrameGenBrush));
+                ScheduleConfigSave();
             }
         }
     }
@@ -655,7 +1055,7 @@ public sealed class MainViewModel : ObservableObject
         private set => SetProperty(ref _fpsGraphHistory, value);
     }
 
-    // --- System Startup & Tray ---
+    // --- Hệ thống & Cập nhật ---
     public bool RunAtWindowsStartup
     {
         get => _runAtWindowsStartup;
@@ -737,476 +1137,57 @@ public sealed class MainViewModel : ObservableObject
         set => SetProperty(ref _updateStatusMessage, value);
     }
 
-    // --- GPU Tech Vendor Filter ---
-    public bool HasMultipleGpus => DetectedGpus.Count > 1;
-    public bool HasDetectedGpus => DetectedGpus.Count > 0;
-
-    public GpuTechMode GpuTechMode
-    {
-        get => _gpuTechMode;
-        set
-        {
-            if (SetProperty(ref _gpuTechMode, value))
-            {
-                OnPropertyChanged(nameof(IsAutoAllGpusMode));
-                OnPropertyChanged(nameof(IsSinglePrimaryGpuMode));
-                UpdateGpuVendorSupportStates();
-                ScheduleConfigSave();
-            }
-        }
-    }
-
-    public bool IsAutoAllGpusMode
-    {
-        get => _gpuTechMode == GpuTechMode.AutoAllGpus;
-        set { if (value) GpuTechMode = GpuTechMode.AutoAllGpus; }
-    }
-
-    public bool IsSinglePrimaryGpuMode
-    {
-        get => _gpuTechMode == GpuTechMode.SinglePrimaryGpu;
-        set { if (value) GpuTechMode = GpuTechMode.SinglePrimaryGpu; }
-    }
-
-    public DetectedGpuInfo? SelectedPrimaryGpu
-    {
-        get => _selectedPrimaryGpu;
-        set
-        {
-            if (SetProperty(ref _selectedPrimaryGpu, value))
-            {
-                UpdateGpuVendorSupportStates();
-                ScheduleConfigSave();
-            }
-        }
-    }
-
-    public bool HideUnsupportedGpuTechs
-    {
-        get => _hideUnsupportedGpuTechs;
-        set
-        {
-            if (SetProperty(ref _hideUnsupportedGpuTechs, value))
-            {
-                UpdateGpuVendorSupportStates();
-                ScheduleConfigSave();
-            }
-        }
-    }
-
-    // --- Widget Bounds & Appearance ---
-    public double WidgetLeft
-    {
-        get => _widgetLeft;
-        set { if (SetProperty(ref _widgetLeft, value)) ScheduleConfigSave(); }
-    }
-
-    public double WidgetTop
-    {
-        get => _widgetTop;
-        set { if (SetProperty(ref _widgetTop, value)) ScheduleConfigSave(); }
-    }
-
-    public double WidgetWidth
-    {
-        get => _widgetWidth;
-        set
-        {
-            double clamped = Math.Clamp(value, 150, 2400);
-            if (SetProperty(ref _widgetWidth, clamped))
-            {
-                RecalculateContentScale(_widgetWidth, _widgetHeight);
-                ScheduleConfigSave();
-            }
-        }
-    }
-
-    public double WidgetHeight
-    {
-        get => _widgetHeight;
-        set
-        {
-            double clamped = Math.Clamp(value, 42, 1600);
-            if (SetProperty(ref _widgetHeight, clamped))
-            {
-                RecalculateContentScale(_widgetWidth, _widgetHeight);
-                ScheduleConfigSave();
-            }
-        }
-    }
-
-    public double BackgroundOpacity
-    {
-        get => _backgroundOpacity;
-        set
-        {
-            double clamped = Math.Clamp(Math.Round(value), 0, 100);
-            if (SetProperty(ref _backgroundOpacity, clamped))
-            {
-                OnPropertyChanged(nameof(BackgroundOpacityLabel));
-                OnPropertyChanged(nameof(WidgetBackgroundBrush));
-                OnPropertyChanged(nameof(WidgetBorderBrush));
-                OnPropertyChanged(nameof(WidgetTextShadowOpacity));
-                BlurSettingsChanged?.Invoke();
-                ScheduleConfigSave();
-            }
-        }
-    }
-
-    public string BackgroundOpacityLabel => BackgroundOpacity <= 0
-        ? LocalizationService.Instance["BgOpacityZero"]
-        : $"{BackgroundOpacity:F0}%";
-
-    public string BackgroundColorHex
-    {
-        get => _backgroundColorHex;
-        set
-        {
-            if (MetricItem.TryParseHex(value, out _))
-            {
-                string normalized = value.Trim().ToUpperInvariant();
-                if (SetProperty(ref _backgroundColorHex, normalized))
-                {
-                    OnPropertyChanged(nameof(IsDarkBackground));
-                    OnPropertyChanged(nameof(IsLightBackground));
-                    OnPropertyChanged(nameof(WidgetBackgroundBrush));
-                    OnPropertyChanged(nameof(WidgetBorderBrush));
-                    OnPropertyChanged(nameof(SoftGlassSheenBrush));
-                    RefreshAllMetricsInheritedTheme();
-                    BlurSettingsChanged?.Invoke();
-                    ScheduleConfigSave();
-                }
-            }
-        }
-    }
-
-    public bool IsDarkBackground
-    {
-        get => !IsLightBackground;
-        set
-        {
-            if (value)
-            {
-                BackgroundColorHex = "#141419";
-                if (string.Equals(TextColorHex, "#141418", StringComparison.OrdinalIgnoreCase))
-                    TextColorHex = "#FFFFFF";
-            }
-        }
-    }
-
-    public bool IsLightBackground
-    {
-        get => string.Equals(_backgroundColorHex, "#F5F7FA", StringComparison.OrdinalIgnoreCase);
-        set
-        {
-            if (value)
-            {
-                BackgroundColorHex = "#F5F7FA";
-                if (string.Equals(TextColorHex, "#FFFFFF", StringComparison.OrdinalIgnoreCase))
-                    TextColorHex = "#141418";
-            }
-        }
-    }
-
-    public string TextColorHex
-    {
-        get => _textColorHex;
-        set
-        {
-            if (string.IsNullOrWhiteSpace(value)) return;
-            string normalized = NormalizeHex(value);
-            if (SetProperty(ref _textColorHex, normalized))
-            {
-                if (MetricItem.TryParseHex(normalized, out _))
-                {
-                    OnPropertyChanged(nameof(WidgetTextBrush));
-                    OnPropertyChanged(nameof(WidgetSecondaryTextBrush));
-                    RefreshAllMetricsInheritedTheme();
-                    ScheduleConfigSave();
-                }
-            }
-        }
-    }
-
-    public double FontSize
-    {
-        get => _fontSize;
-        set
-        {
-            double clamped = Math.Clamp(Math.Round(value), 10, 36);
-            if (SetProperty(ref _fontSize, clamped))
-            {
-                OnPropertyChanged(nameof(FontSizeLabel));
-                OnPropertyChanged(nameof(WidgetLabelFontSize));
-                OnPropertyChanged(nameof(WidgetIconFontSize));
-                OnPropertyChanged(nameof(WidgetBadgeFontSize));
-                NotifyScaledMetricsChanged();
-                ScheduleConfigSave();
-            }
-        }
-    }
-
-    public string FontSizeLabel => $"{FontSize:F0} px";
-    public double WidgetLabelFontSize => Math.Max(9, Math.Round(FontSize * 0.85, 1));
-    public double WidgetIconFontSize => Math.Max(12, Math.Round(FontSize * 1.12, 1));
-    public double WidgetBadgeFontSize => Math.Max(9.5, Math.Round(FontSize * 0.80, 1));
-
-    // Các kích thước đã áp dụng hệ số tỷ lệ mượt theo kích thước cửa sổ Widget (vector sắc nét, không nhòe)
-    public double EffectiveFontSize => Math.Clamp(Math.Round(FontSize * ContentScaleFactor, 1), 9, 64);
-    public double EffectiveLabelFontSize => Math.Clamp(Math.Round(WidgetLabelFontSize * ContentScaleFactor, 1), 8.5, 54);
-    public double EffectiveIconFontSize => Math.Clamp(Math.Round(WidgetIconFontSize * ContentScaleFactor, 1), 11, 68);
-    public double EffectiveBadgeFontSize => Math.Clamp(Math.Round(WidgetBadgeFontSize * ContentScaleFactor, 1), 8.5, 42);
-    public double EffectiveHorizontalSpacing => Math.Clamp(Math.Round(12 * ContentScaleFactor, 1), 6, 32);
-    public double EffectiveVerticalSpacing => Math.Clamp(Math.Round(6 * ContentScaleFactor, 1), 3, 20);
-    public Thickness EffectiveWidgetPadding => new(
-        Math.Clamp(Math.Round(12 * ContentScaleFactor), 6, 30),
-        Math.Clamp(Math.Round(10 * ContentScaleFactor), 5, 24),
-        Math.Clamp(Math.Round(12 * ContentScaleFactor), 6, 30),
-        Math.Clamp(Math.Round(10 * ContentScaleFactor), 5, 24));
-    public double EffectiveGraphMinWidth => Math.Clamp(Math.Round(156 * ContentScaleFactor), 120, 420);
-
-    public double CornerRadius
-    {
-        get => _cornerRadius;
-        set
-        {
-            double clamped = Math.Clamp(Math.Round(value), 0, 28);
-            if (SetProperty(ref _cornerRadius, clamped))
-            {
-                OnPropertyChanged(nameof(CornerRadiusLabel));
-                OnPropertyChanged(nameof(WidgetCornerRadius));
-                OnPropertyChanged(nameof(EffectiveWidgetCornerRadius));
-                BlurSettingsChanged?.Invoke();
-                ScheduleConfigSave();
-            }
-        }
-    }
-
-    public string CornerRadiusLabel => $"{CornerRadius:F0} px";
-    public CornerRadius WidgetCornerRadius => new(CornerRadius);
-
-    /// <summary>
-    /// Khi bật Kính mềm / Kính mờ, khớp khít bán kính góc của DWM Windows 11 (0 / 4 / 8 px)
-    /// để lớp làm mờ ôm sát viền bo tròn, không hở 4 góc vuông đen.
-    /// </summary>
-    public CornerRadius EffectiveWidgetCornerRadius
-    {
-        get
-        {
-            if (BlurMode == WidgetBlurMode.Off)
-                return new CornerRadius(CornerRadius);
-
-            if (CornerRadius <= 0.5) return new CornerRadius(0);
-            if (CornerRadius <= 6.0) return new CornerRadius(4);
-            return new CornerRadius(8);
-        }
-    }
-
-    public bool IsClickThrough
-    {
-        get => _isClickThrough;
-        set
-        {
-            if (SetProperty(ref _isClickThrough, value))
-            {
-                OnPropertyChanged(nameof(ClickThroughStatusLabel));
-                OnPropertyChanged(nameof(IsUnlocked));
-                ClickThroughChanged?.Invoke(value);
-                ScheduleConfigSave();
-            }
-        }
-    }
-
-    public bool IsUnlocked => !IsClickThrough;
-
-    public string ClickThroughStatusLabel => IsClickThrough
-        ? LocalizationService.Instance["ClickThroughLocked"]
-        : LocalizationService.Instance["ClickThroughUnlocked"];
-
-    public bool IsWidgetTopmost
-    {
-        get => _isWidgetTopmost;
-        set
-        {
-            if (SetProperty(ref _isWidgetTopmost, value))
-            {
-                WidgetTopmostChanged?.Invoke(value);
-                ScheduleConfigSave();
-            }
-        }
-    }
-
-    public bool IsWidgetVisible
-    {
-        get => _isWidgetVisible;
-        set
-        {
-            if (SetProperty(ref _isWidgetVisible, value))
-            {
-                OnPropertyChanged(nameof(WidgetVisibilityButtonText));
-                WidgetVisibilityChanged?.Invoke(value);
-                ScheduleConfigSave();
-            }
-        }
-    }
-
-    public string WidgetVisibilityButtonText => IsWidgetVisible
-        ? LocalizationService.Instance["BtnHideWidget"]
-        : LocalizationService.Instance["BtnShowWidget"];
-
-    public SolidColorBrush WidgetBackgroundBrush
-    {
-        get
-        {
-            var baseColor = MetricItem.TryParseHex(BackgroundColorHex, out var c) ? c : Color.FromRgb(20, 20, 25);
-
-            double opacityFactor = BlurMode switch
-            {
-                // Kính mềm: giữ trong trẻo tối đa ở 0%, tăng nhẹ sắc nền khi kéo thanh trượt
-                WidgetBlurMode.SoftGlass => (BackgroundOpacity / 100.0) * 0.24,
-                // Kính mờ: DWM Acrylic đã phủ độ mờ chính, chỉ thêm lớp tint rất nhẹ bổ trợ
-                WidgetBlurMode.FrostedGlass => (BackgroundOpacity / 100.0) * 0.22,
-                // Tắt làm mờ: 0% -> trong suốt hoàn toàn (alpha = 0), 100% -> đặc hoàn toàn
-                _ => BackgroundOpacity / 100.0
-            };
-
-            byte alpha = (byte)Math.Clamp(Math.Round(opacityFactor * 255.0), 0, 255);
-            var brush = new SolidColorBrush(Color.FromArgb(alpha, baseColor.R, baseColor.G, baseColor.B));
-            brush.Freeze();
-            return brush;
-        }
-    }
-
-    public Brush WidgetBorderBrush
-    {
-        get
-        {
-            if (BlurMode == WidgetBlurMode.SoftGlass)
-            {
-                // Kính mềm (Liquid Glass): viền phản quang trắng sáng sắc nét giống mẫu
-                var grad = new LinearGradientBrush
-                {
-                    StartPoint = new Point(0, 0),
-                    EndPoint = new Point(0.18, 1)
-                };
-                grad.GradientStops.Add(new GradientStop(Color.FromArgb(245, 255, 255, 255), 0.0));
-                grad.GradientStops.Add(new GradientStop(Color.FromArgb(72, 235, 248, 255), 0.30));
-                grad.GradientStops.Add(new GradientStop(Color.FromArgb(42, 255, 255, 255), 0.65));
-                grad.GradientStops.Add(new GradientStop(Color.FromArgb(205, 255, 255, 255), 1.0));
-                grad.Freeze();
-                return grad;
-            }
-
-            if (BlurMode == WidgetBlurMode.FrostedGlass)
-            {
-                // Kính mờ (Frosted Glass): viền cực mảnh mềm dịu giống mẫu kính phun cát
-                var grad = new LinearGradientBrush
-                {
-                    StartPoint = new Point(0, 0),
-                    EndPoint = new Point(0, 1)
-                };
-                if (IsLightBackground)
-                {
-                    grad.GradientStops.Add(new GradientStop(Color.FromArgb(85, 255, 255, 255), 0.0));
-                    grad.GradientStops.Add(new GradientStop(Color.FromArgb(30, 15, 23, 42), 1.0));
-                }
-                else
-                {
-                    grad.GradientStops.Add(new GradientStop(Color.FromArgb(76, 255, 255, 255), 0.0));
-                    grad.GradientStops.Add(new GradientStop(Color.FromArgb(24, 255, 255, 255), 1.0));
-                }
-                grad.Freeze();
-                return grad;
-            }
-
-            if (BackgroundOpacity < 6 && !HasBackgroundImage)
-            {
-                var transparent = new SolidColorBrush(Colors.Transparent);
-                transparent.Freeze();
-                return transparent;
-            }
-
-            byte alpha = (byte)Math.Clamp(Math.Round(Math.Max(BackgroundOpacity, HasBackgroundImage ? 45 : 0) / 100.0 * 52.0), 10, 56);
-            Color borderColor = IsLightBackground
-                ? Color.FromArgb(alpha, 0, 0, 0)
-                : Color.FromArgb(alpha, 255, 255, 255);
-            var brush = new SolidColorBrush(borderColor);
-            brush.Freeze();
-            return brush;
-        }
-    }
-
-    public Thickness WidgetBorderThickness => BlurMode == WidgetBlurMode.SoftGlass
-        ? new Thickness(1.35)
-        : new Thickness(1);
-
-    public SolidColorBrush WidgetTextBrush => CreateFrozenBrush(TextColorHex, Colors.White);
-
-    public SolidColorBrush WidgetSecondaryTextBrush
-    {
-        get
-        {
-            var c = MetricItem.TryParseHex(TextColorHex, out var parsed) ? parsed : Colors.White;
-            var brush = new SolidColorBrush(Color.FromArgb(196, c.R, c.G, c.B));
-            brush.Freeze();
-            return brush;
-        }
-    }
-
-    public double WidgetTextShadowOpacity =>
-        (BlurMode == WidgetBlurMode.SoftGlass || (BackgroundOpacity < 45 && !HasBackgroundImage))
-            ? 0.68
-            : 0.28;
-
-    public bool HasActiveMetrics => ActiveMetrics.Count > 0;
-    public string ActiveMetricCountText => LocalizationService.Instance.Format("ActiveCountFormat", ActiveMetrics.Count);
-
-    public event Action<bool>? ClickThroughChanged;
+    // --- Events ---
     public event Action<bool>? WidgetTopmostChanged;
     public event Action<bool>? WidgetVisibilityChanged;
-    public event Action? CenterWidgetRequested;
+    public event Action<bool>? ToggleOverlayHotkeySettingChanged;
+    public event Action? OverlayPositionChanged;
+    public event Action? EditorCanvasGridChanged;
     public event Action? OpenSettingsRequested;
     public event Action? ExitAppRequested;
-    public event Action? ResetFpsToastRequested;
-    public event Action? BlurSettingsChanged;
     public event Action<UpdateReleaseInfo>? UpdateAvailableDetected;
 
-    public ICommand ToggleMetricCommand { get; }
-    public ICommand RemoveMetricCommand { get; }
-    public ICommand CustomizeMetricCommand { get; }
-    public ICommand SelectColorPresetCommand { get; }
+    // --- Commands ---
+    public ICommand QuickAddMetricCommand { get; }
+    public ICommand AddStaticTextLayerCommand { get; }
+    public ICommand AddBackdropBoxLayerCommand { get; }
+    public ICommand RemoveLayerCommand { get; }
+    public ICommand RemoveSelectedLayerCommand { get; }
+    public ICommand DuplicateSelectedLayerCommand { get; }
+    public ICommand BringLayerForwardCommand { get; }
+    public ICommand SendLayerBackwardCommand { get; }
+    public ICommand AutoSizeSelectedLayerCommand { get; }
+    public ICommand ClearAllLayersCommand { get; }
+    public ICommand ApplyPresetPillCommand { get; }
+    public ICommand ApplyPresetClassicCommand { get; }
+    public ICommand ApplyPresetCardsCommand { get; }
+    public ICommand ApplySelectedLayerStyleToAllCommand { get; }
+    public ICommand ResetSelectedLayerLabelCommand { get; }
+    public ICommand ClearSelectedLayerLabelColorCommand { get; }
+    public ICommand ClearSelectedLayerValueColorCommand { get; }
+    public ICommand SelectLayerLabelColorCommand { get; }
+    public ICommand SelectLayerValueColorCommand { get; }
+    public ICommand SelectLayerBgColorCommand { get; }
+    public ICommand SelectLayerBorderColorCommand { get; }
+    public ICommand SelectLayerIconCommand { get; }
+    public ICommand ResetSelectedLayerStyleCommand { get; }
+    public ICommand SelectGlobalValueColorCommand { get; }
+    public ICommand SelectGlobalLabelColorCommand { get; }
+    public ICommand SelectDefaultCellBgColorCommand { get; }
+    public ICommand SelectDefaultCellBorderColorCommand { get; }
+    public ICommand SelectOuterFrameBgColorCommand { get; }
+    public ICommand SelectOuterFrameBorderColorCommand { get; }
+    public ICommand SetAnchorCommand { get; }
+    public ICommand RefreshMonitorsCommand { get; }
     public ICommand ToggleWidgetVisibilityCommand { get; }
-    public ICommand CenterWidgetCommand { get; }
     public ICommand ResetDefaultsCommand { get; }
     public ICommand OpenSettingsCommand { get; }
-    public ICommand ToggleClickThroughCommand { get; }
-    public ICommand ToggleWidgetTopmostCommand { get; }
     public ICommand ExitAppCommand { get; }
-
-    public ICommand ApplyHeaderStyleAllCommand { get; }
-    public ICommand HighlightAllMetricsCommand { get; }
-    public ICommand ApplySelectedHighlightIntensityAllCommand { get; }
-    public ICommand ResetSelectedMetricLabelCommand { get; }
-    public ICommand ClearSelectedLabelColorCommand { get; }
-    public ICommand ClearSelectedValueColorCommand { get; }
-    public ICommand SelectMetricLabelColorCommand { get; }
-    public ICommand SelectMetricValueColorCommand { get; }
-    public ICommand SelectMetricIconCommand { get; }
-    public ICommand ResetSelectedMetricCommand { get; }
-    public ICommand ResetAllMetricStylesCommand { get; }
-
     public ICommand ResetFpsStatsCommand { get; }
     public ICommand DownloadPresentMonCommand { get; }
-    public ICommand SelectFpsGraphBaseColorCommand { get; }
-    public ICommand SelectFpsGraphFrameGenColorCommand { get; }
-
     public ICommand CycleTechOverrideCommand { get; }
     public ICommand ApplyManualGameExeCommand { get; }
     public ICommand ClearCurrentGameOverridesCommand { get; }
-    public ICommand SelectCustomGpuBadgeColorCommand { get; }
-
-    public ICommand ChooseBackgroundImageCommand { get; }
-    public ICommand ClearBackgroundImageCommand { get; }
     public ICommand CheckForUpdatesCommand { get; }
 
     public MainViewModel(
@@ -1221,10 +1202,10 @@ public sealed class MainViewModel : ObservableObject
         _presentMonService = presentMonService;
         _gpuTechDetectorService = gpuTechDetectorService;
         _updateService = updateService;
+
         IsAdministrator = Win32Helper.IsRunningAsAdministrator();
         _selectedLanguage = LocalizationService.Instance.SupportedLanguages[0];
 
-        // Nạp toàn bộ phông chữ đang cài đặt trên Windows, sắp xếp theo bảng chữ cái
         InstalledFontFamilies = Fonts.SystemFontFamilies
             .OrderBy(f => f.Source, StringComparer.CurrentCultureIgnoreCase)
             .ToList();
@@ -1239,19 +1220,26 @@ public sealed class MainViewModel : ObservableObject
             new("Bold", "WeightBold", FontWeights.Bold, FontWeights.Medium),
             new("ExtraBold", "WeightExtraBold", FontWeights.ExtraBold, FontWeights.SemiBold)
         };
-        _selectedFontWeightOption = FontWeightOptions[4]; // SemiBold
+        _selectedFontWeightOption = FontWeightOptions[4];
 
-        StretchModeOptions = new List<StretchModeOption>
+        AlignmentOptions = new List<AlignmentOption>
         {
-            new(BackgroundImageStretchMode.UniformToFill, "StretchFillFrame"),
-            new(BackgroundImageStretchMode.Uniform, "StretchFitFrame"),
-            new(BackgroundImageStretchMode.Fill, "StretchExact")
+            new(CellContentAlignment.InlineWithGap, "AlignInlineGap"),
+            new(CellContentAlignment.SpaceBetween, "AlignSpaceBetween"),
+            new(CellContentAlignment.StackedVertical, "AlignStacked")
         };
 
-        TextColorPresets = new List<ColorPreset>
+        DisplayModeOptions = new List<DisplayModeOption>
+        {
+            new(LayerDisplayMode.LabelAndValue, "DisplayModeLabelValue"),
+            new(LayerDisplayMode.ValueOnly, "DisplayModeValueOnly"),
+            new(LayerDisplayMode.LabelOnly, "DisplayModeLabelOnly")
+        };
+
+        ColorPresets = new List<ColorPreset>
         {
             MakePreset("ColorWhite", "#FFFFFF"),
-            MakePreset("ColorSilver", "#E2E8F0"),
+            MakePreset("ColorSilver", "#CBD5E1"),
             MakePreset("ColorCharcoal", "#141418"),
             MakePreset("ColorWin11Blue", "#60CDFF"),
             MakePreset("ColorTeal", "#2DD4BF"),
@@ -1261,6 +1249,16 @@ public sealed class MainViewModel : ObservableObject
             MakePreset("ColorOrange", "#FB923C"),
             MakePreset("ColorCoralRed", "#F87171"),
             MakePreset("ColorPurple", "#C084FC")
+        };
+
+        DarkBgPresets = new List<ColorPreset>
+        {
+            MakePreset("ColorCharcoal", "#0A0C10"),
+            MakePreset("ColorSilver", "#1E2430"),
+            MakePreset("ColorWin11Blue", "#0B1E2D"),
+            MakePreset("ColorGreen", "#0D1F17"),
+            MakePreset("ColorPurple", "#1B1329"),
+            MakePreset("ColorWhite", "#F8FAFC")
         };
 
         FluentIconChoices = new List<IconChoice>
@@ -1285,116 +1283,112 @@ public sealed class MainViewModel : ObservableObject
             new() { NameKey = "IconSystem", SymbolName = nameof(SymbolRegular.Server24), Symbol = SymbolRegular.Server24 }
         };
 
-        ToggleMetricCommand = new RelayCommand(p =>
+        // Commands
+        QuickAddMetricCommand = new RelayCommand(p => { if (p is MetricItem item) QuickToggleMetricOnCanvas(item); });
+        AddStaticTextLayerCommand = new RelayCommand(AddStaticTextLayer);
+        AddBackdropBoxLayerCommand = new RelayCommand(AddBackdropBoxLayer);
+        RemoveLayerCommand = new RelayCommand(p => { if (p is OverlayLayerViewModel layer) RemoveLayer(layer); });
+        RemoveSelectedLayerCommand = new RelayCommand(() => { if (SelectedLayer != null) RemoveLayer(SelectedLayer); });
+        DuplicateSelectedLayerCommand = new RelayCommand(DuplicateSelectedLayer);
+        BringLayerForwardCommand = new RelayCommand(() => { if (SelectedLayer != null) SelectedLayer.ZIndex++; });
+        SendLayerBackwardCommand = new RelayCommand(() => { if (SelectedLayer != null) SelectedLayer.ZIndex = Math.Max(0, SelectedLayer.ZIndex - 1); });
+        AutoSizeSelectedLayerCommand = new RelayCommand(() =>
         {
-            if (p is MetricItem item) ToggleMetric(item);
-            else if (p is string id && _metricsById.TryGetValue(id, out var found)) ToggleMetric(found);
+            if (SelectedLayer == null || SelectedLayer.IsBackdropBoxLayer) return;
+            SelectedLayer.Width = 0;
+            SelectedLayer.Height = 0;
         });
-
-        RemoveMetricCommand = new RelayCommand(p =>
+        ClearAllLayersCommand = new RelayCommand(() =>
         {
-            if (p is MetricItem item) RemoveMetric(item);
-            else if (p is string id && _metricsById.TryGetValue(id, out var found)) RemoveMetric(found);
-        });
-
-        CustomizeMetricCommand = new RelayCommand(p =>
-        {
-            if (p is MetricItem item)
-            {
-                if (ShowOnlyActiveInCustomization && !item.IsSelected)
-                    ShowOnlyActiveInCustomization = false;
-                SelectedCustomizationMetric = item;
-                SelectedTabIndex = 1;
-            }
-        });
-
-        SelectColorPresetCommand = new RelayCommand(p => { if (p is string hex) TextColorHex = hex; });
-
-        ApplyHeaderStyleAllCommand = new RelayCommand(p =>
-        {
-            if (p is string mode)
-            {
-                var style = string.Equals(mode, "icon", StringComparison.OrdinalIgnoreCase)
-                    ? MetricHeaderStyle.Icon
-                    : MetricHeaderStyle.Text;
-                foreach (var m in AllMetrics)
-                    m.HeaderStyle = style;
-                ScheduleConfigSave();
-            }
-        });
-
-        HighlightAllMetricsCommand = new RelayCommand(p =>
-        {
-            bool enable = string.Equals(p as string, "on", StringComparison.OrdinalIgnoreCase);
-            foreach (var m in AllMetrics)
-                m.IsHighlightedBlock = enable;
+            OverlayLayers.Clear();
+            foreach (var m in AllMetrics) m.IsPlacedOnGrid = false;
+            SelectedLayer = null;
             ScheduleConfigSave();
         });
 
-        ApplySelectedHighlightIntensityAllCommand = new RelayCommand(() =>
+        ApplyPresetPillCommand = new RelayCommand(ApplyPresetPill);
+        ApplyPresetClassicCommand = new RelayCommand(ApplyPresetClassic);
+        ApplyPresetCardsCommand = new RelayCommand(ApplyPresetCards);
+
+        ApplySelectedLayerStyleToAllCommand = new RelayCommand(() =>
         {
-            if (SelectedCustomizationMetric == null) return;
-            double level = SelectedCustomizationMetric.HighlightIntensity;
-            foreach (var m in AllMetrics)
+            if (SelectedLayer == null) return;
+            foreach (var layer in OverlayLayers)
             {
-                m.HighlightIntensity = level;
-                if (SelectedCustomizationMetric.IsHighlightedBlock)
-                    m.IsHighlightedBlock = true;
+                if (!ReferenceEquals(layer, SelectedLayer))
+                    layer.CopyVisualStyleFrom(SelectedLayer);
             }
             ScheduleConfigSave();
         });
 
-        ResetSelectedMetricLabelCommand = new RelayCommand(() =>
+        ResetSelectedLayerLabelCommand = new RelayCommand(() => { if (SelectedLayer != null) SelectedLayer.CustomLabel = string.Empty; });
+        ClearSelectedLayerLabelColorCommand = new RelayCommand(() => { if (SelectedLayer != null) SelectedLayer.LabelColorHex = string.Empty; });
+        ClearSelectedLayerValueColorCommand = new RelayCommand(() => { if (SelectedLayer != null) SelectedLayer.ValueColorHex = string.Empty; });
+        SelectLayerLabelColorCommand = new RelayCommand(p => { if (SelectedLayer != null && p is string h) SelectedLayer.LabelColorHex = h; });
+        SelectLayerValueColorCommand = new RelayCommand(p => { if (SelectedLayer != null && p is string h) SelectedLayer.ValueColorHex = h; });
+        SelectLayerBgColorCommand = new RelayCommand(p =>
         {
-            if (SelectedCustomizationMetric != null)
-                SelectedCustomizationMetric.CustomLabel = string.Empty;
-        });
-
-        ClearSelectedLabelColorCommand = new RelayCommand(() =>
-        {
-            if (SelectedCustomizationMetric != null)
-                SelectedCustomizationMetric.CustomLabelColorHex = string.Empty;
-        });
-
-        ClearSelectedValueColorCommand = new RelayCommand(() =>
-        {
-            if (SelectedCustomizationMetric != null)
-                SelectedCustomizationMetric.CustomValueColorHex = string.Empty;
-        });
-
-        SelectMetricLabelColorCommand = new RelayCommand(p =>
-        {
-            if (SelectedCustomizationMetric != null && p is string hex)
-                SelectedCustomizationMetric.CustomLabelColorHex = hex;
-        });
-
-        SelectMetricValueColorCommand = new RelayCommand(p =>
-        {
-            if (SelectedCustomizationMetric != null && p is string hex)
-                SelectedCustomizationMetric.CustomValueColorHex = hex;
-        });
-
-        SelectMetricIconCommand = new RelayCommand(p =>
-        {
-            if (SelectedCustomizationMetric != null && p is string symbolName)
+            if (SelectedLayer != null && p is string h)
             {
-                SelectedCustomizationMetric.CustomSymbolName = symbolName;
-                if (SelectedCustomizationMetric.HeaderStyle != MetricHeaderStyle.Icon)
-                    SelectedCustomizationMetric.HeaderStyle = MetricHeaderStyle.Icon;
+                SelectedLayer.UseGlobalStyle = false;
+                SelectedLayer.BgColorHex = h;
             }
         });
-
-        ResetSelectedMetricCommand = new RelayCommand(() => SelectedCustomizationMetric?.ResetCustomizations());
-
-        ResetAllMetricStylesCommand = new RelayCommand(() =>
+        SelectLayerBorderColorCommand = new RelayCommand(p =>
         {
-            foreach (var m in AllMetrics)
-                m.ResetCustomizations();
+            if (SelectedLayer != null && p is string h)
+            {
+                SelectedLayer.UseGlobalStyle = false;
+                SelectedLayer.BorderColorHex = h;
+            }
+        });
+        SelectLayerIconCommand = new RelayCommand(p =>
+        {
+            if (SelectedLayer != null && p is string sym)
+            {
+                SelectedLayer.CustomSymbolName = sym;
+                SelectedLayer.HeaderStyle = MetricHeaderStyle.Icon;
+            }
+        });
+        ResetSelectedLayerStyleCommand = new RelayCommand(() =>
+        {
+            if (SelectedLayer == null) return;
+            SelectedLayer.ApplyStyleConfig(new CellStyleConfig
+            {
+                UseGlobalStyle = !SelectedLayer.IsBackdropBoxLayer,
+                DisplayMode = SelectedLayer.IsStaticTextLayer ? LayerDisplayMode.LabelOnly : LayerDisplayMode.LabelAndValue,
+                HeaderStyle = MetricHeaderStyle.Text,
+                BackgroundColorHex = DefaultCellBgColorHex,
+                BackgroundOpacity = DefaultCellBgOpacity,
+                BorderEnabled = DefaultCellBorderEnabled,
+                BorderColorHex = DefaultCellBorderColorHex,
+                BorderOpacity = DefaultCellBorderOpacity,
+                BorderThickness = DefaultCellBorderThickness,
+                CornerRadius = DefaultCellCornerRadius
+            });
             ScheduleConfigSave();
         });
+
+        SelectGlobalValueColorCommand = new RelayCommand(p => { if (p is string h) TextColorHex = h; });
+        SelectGlobalLabelColorCommand = new RelayCommand(p => { if (p is string h) LabelColorHex = h; });
+        SelectDefaultCellBgColorCommand = new RelayCommand(p => { if (p is string h) DefaultCellBgColorHex = h; });
+        SelectDefaultCellBorderColorCommand = new RelayCommand(p => { if (p is string h) DefaultCellBorderColorHex = h; });
+        SelectOuterFrameBgColorCommand = new RelayCommand(p => { if (p is string h) OuterFrameBgColorHex = h; });
+        SelectOuterFrameBorderColorCommand = new RelayCommand(p => { if (p is string h) OuterFrameBorderColorHex = h; });
+
+        SetAnchorCommand = new RelayCommand(p =>
+        {
+            if (p is OverlayAnchor anchor) OverlayAnchor = anchor;
+            else if (p is string s && Enum.TryParse<OverlayAnchor>(s, true, out var parsed)) OverlayAnchor = parsed;
+        });
+
+        RefreshMonitorsCommand = new RelayCommand(() => RefreshMonitorsList(SelectedMonitor?.DeviceName));
+        ToggleWidgetVisibilityCommand = new RelayCommand(() => IsWidgetVisible = !IsWidgetVisible);
+        ResetDefaultsCommand = new RelayCommand(ResetToDefaults);
+        OpenSettingsCommand = new RelayCommand(() => OpenSettingsRequested?.Invoke());
+        ExitAppCommand = new RelayCommand(() => ExitAppRequested?.Invoke());
 
         ResetFpsStatsCommand = new RelayCommand(ResetFpsStats);
-
         DownloadPresentMonCommand = new RelayCommand(async () =>
         {
             if (IsDownloadingPresentMon) return;
@@ -1402,7 +1396,7 @@ public sealed class MainViewModel : ObservableObject
             PresentMonDownloadFeedback = LocalizationService.Instance["PmDownloading"];
             try
             {
-                var (ok, msg) = await _presentMonService.DownloadOfficialPresentMonAsync();
+                var (_, msg) = await _presentMonService.DownloadOfficialPresentMonAsync();
                 PresentMonDownloadFeedback = msg;
                 IsPresentMonAvailable = _presentMonService.IsPresentMonAvailable;
                 IsPresentMonRunning = _presentMonService.IsRunning;
@@ -1413,9 +1407,6 @@ public sealed class MainViewModel : ObservableObject
                 IsDownloadingPresentMon = false;
             }
         });
-
-        SelectFpsGraphBaseColorCommand = new RelayCommand(p => { if (p is string hex) FpsGraphBaseColorHex = hex; });
-        SelectFpsGraphFrameGenColorCommand = new RelayCommand(p => { if (p is string hex) FpsGraphFrameGenColorHex = hex; });
 
         CycleTechOverrideCommand = new RelayCommand(p =>
         {
@@ -1429,18 +1420,15 @@ public sealed class MainViewModel : ObservableObject
                 };
             }
         });
-
         ApplyManualGameExeCommand = new RelayCommand(() =>
         {
             string raw = ManualGameExeInput.Trim();
             if (string.IsNullOrWhiteSpace(raw)) return;
-            if (!raw.EndsWith(".exe", StringComparison.OrdinalIgnoreCase))
-                raw += ".exe";
+            if (!raw.EndsWith(".exe", StringComparison.OrdinalIgnoreCase)) raw += ".exe";
             EnsureGameProfileExists(raw);
             CurrentOverrideGameExe = raw;
             ManualGameExeInput = string.Empty;
         });
-
         ClearCurrentGameOverridesCommand = new RelayCommand(() =>
         {
             if (!HasOverrideTargetGame) return;
@@ -1450,76 +1438,424 @@ public sealed class MainViewModel : ObservableObject
             RebuildActiveGpuBadges();
             ScheduleConfigSave();
         });
-
-        SelectCustomGpuBadgeColorCommand = new RelayCommand(p =>
-        {
-            if (p is string hex)
-            {
-                CustomGpuBadgeColorHex = hex;
-                UseCustomGpuBadgeColor = true;
-            }
-        });
-
-        ChooseBackgroundImageCommand = new RelayCommand(() =>
-        {
-            var dlg = new OpenFileDialog
-            {
-                Title = LocalizationService.Instance["DlgChoosePngTitle"],
-                Filter = LocalizationService.Instance["DlgPngFilter"]
-            };
-            if (dlg.ShowDialog() == true)
-                BackgroundImagePath = dlg.FileName;
-        });
-
-        ClearBackgroundImageCommand = new RelayCommand(() => BackgroundImagePath = string.Empty);
         CheckForUpdatesCommand = new RelayCommand(async () => await CheckForUpdatesManualAsync());
 
-        ToggleWidgetVisibilityCommand = new RelayCommand(() => IsWidgetVisible = !IsWidgetVisible);
-        CenterWidgetCommand = new RelayCommand(() => CenterWidgetRequested?.Invoke());
-        ResetDefaultsCommand = new RelayCommand(ResetToDefaults);
-        OpenSettingsCommand = new RelayCommand(() => OpenSettingsRequested?.Invoke());
-        ToggleClickThroughCommand = new RelayCommand(() => IsClickThrough = !IsClickThrough);
-        ToggleWidgetTopmostCommand = new RelayCommand(() => IsWidgetTopmost = !IsWidgetTopmost);
-        ExitAppCommand = new RelayCommand(() => ExitAppRequested?.Invoke());
-
-        ActiveMetrics.CollectionChanged += (_, _) =>
-        {
-            OnPropertyChanged(nameof(HasActiveMetrics));
-            OnPropertyChanged(nameof(ActiveMetricCountText));
-            if (ShowOnlyActiveInCustomization)
-                RebuildFilteredCustomizationMetrics();
-        };
+        OverlayLayers.CollectionChanged += (_, _) => OnPropertyChanged(nameof(LayerCountText));
 
         PopulateMetricsFromService();
         PopulateGpuTechnologies();
+        _gpuTechDetectorService.SetKnownGpus(DetectedGpus);
         LoadFromConfig();
+
         _fpsStatusText = LocalizationService.Instance["PmInitializing"];
         _gpuDetectionStatusText = LocalizationService.Instance["GpuDetWaiting"];
         LocalizationService.Instance.LanguageChanged += OnLanguageChanged;
 
-        RecalculateContentScale(_widgetWidth, _widgetHeight);
-        RefreshAllMetricsInheritedTheme();
-        RebuildFilteredCustomizationMetrics();
+        RebuildOuterFrameVisuals();
+        RefreshAllLayerVisuals();
         UpdateGpuVendorSupportStates();
         SyncGameOverridesToViewModel();
         RebuildActiveGpuBadges();
-        RebuildBackgroundImageBrush();
         UpdateFpsMetricsVisibility();
         OnLanguageChanged();
     }
 
+    // --- RTSS-Style Canvas Layer Operations ---
+    public double SnapCoordinate(double value, bool bypassSnap = false)
+    {
+        double clamped = Math.Max(0, value);
+        if (bypassSnap || !SnapToGrid || _gridSnapSize <= 1)
+            return Math.Round(clamped);
+        return Math.Round(clamped / _gridSnapSize) * _gridSnapSize;
+    }
+
+    public void SelectLayer(OverlayLayerViewModel? layer)
+    {
+        SelectedLayer = layer;
+        if (layer != null)
+            RightInspectorTabIndex = 0;
+    }
+
+    public void NotifyLayerEdited()
+    {
+        OnPropertyChanged(nameof(SelectedLayerStatusBarText));
+        ScheduleConfigSave();
+    }
+
+    public void AddMetricLayerAt(string metricId, double x, double y)
+    {
+        if (!_metricsById.TryGetValue(metricId, out var metric))
+            return;
+
+        double sx = SnapCoordinate(x);
+        double sy = SnapCoordinate(y);
+        int nextZ = OverlayLayers.Count > 0 ? OverlayLayers.Max(l => l.ZIndex) + 1 : 10;
+
+        double initW = metric.IsGraphMetric ? 200 : 0;
+        double initH = metric.IsGraphMetric ? Math.Max(56, FpsGraphHeight + 20) : 0;
+
+        var layer = new OverlayLayerViewModel(this, OverlayLayerKind.Metric, metric, sx, sy, initW, initH, nextZ);
+        OverlayLayers.Add(layer);
+        SyncMetricPlacedFlags();
+        SelectLayer(layer);
+        ScheduleConfigSave();
+    }
+
+    public void QuickToggleMetricOnCanvas(MetricItem item)
+    {
+        var existing = OverlayLayers.FirstOrDefault(l => l.IsMetricLayer && l.MetricId == item.Id);
+        if (existing != null)
+        {
+            RemoveLayer(existing);
+            return;
+        }
+
+        // Tìm vị trí gọn gàng ngay bên dưới lớp thấp nhất hiện tại
+        double nextY = OverlayLayers.Count > 0
+            ? SnapCoordinate(OverlayLayers.Max(l => l.Y + (l.Height > 0 ? l.Height : 28)) + 8)
+            : 16;
+        if (nextY > 420) nextY = 16;
+
+        AddMetricLayerAt(item.Id, 16, nextY);
+    }
+
+    private void AddStaticTextLayer()
+    {
+        int nextZ = OverlayLayers.Count > 0 ? OverlayLayers.Max(l => l.ZIndex) + 1 : 10;
+        double x = SelectedLayer != null ? SnapCoordinate(SelectedLayer.X + 16) : 16;
+        double y = SelectedLayer != null ? SnapCoordinate(SelectedLayer.Y + 32) : 16;
+        var layer = new OverlayLayerViewModel(this, OverlayLayerKind.StaticText, null, x, y, 56, 32, nextZ);
+        OverlayLayers.Add(layer);
+        SelectLayer(layer);
+        ScheduleConfigSave();
+    }
+
+    private void AddBackdropBoxLayer()
+    {
+        int minZ = OverlayLayers.Count > 0 ? Math.Max(0, OverlayLayers.Min(l => l.ZIndex) - 1) : 1;
+        var layer = new OverlayLayerViewModel(this, OverlayLayerKind.BackdropBox, null, 16, 16, 360, 40, minZ);
+        OverlayLayers.Insert(0, layer);
+        SelectLayer(layer);
+        ScheduleConfigSave();
+    }
+
+    public void DuplicateSelectedLayer()
+    {
+        if (SelectedLayer == null) return;
+        int nextZ = OverlayLayers.Count > 0 ? OverlayLayers.Max(l => l.ZIndex) + 1 : 10;
+        var dup = new OverlayLayerViewModel(
+            this,
+            SelectedLayer.Kind,
+            SelectedLayer.Metric,
+            SnapCoordinate(SelectedLayer.X + 16),
+            SnapCoordinate(SelectedLayer.Y + 16),
+            SelectedLayer.Width,
+            SelectedLayer.Height,
+            nextZ);
+        dup.ApplyStyleConfig(SelectedLayer.ExportStyleConfig());
+        OverlayLayers.Add(dup);
+        SyncMetricPlacedFlags();
+        SelectLayer(dup);
+        ScheduleConfigSave();
+    }
+
+    public void RemoveLayer(OverlayLayerViewModel layer)
+    {
+        if (OverlayLayers.Remove(layer))
+        {
+            SyncMetricPlacedFlags();
+            if (ReferenceEquals(SelectedLayer, layer))
+                SelectedLayer = OverlayLayers.FirstOrDefault();
+            ScheduleConfigSave();
+        }
+    }
+
+    public void NudgeSelectedLayer(double dx, double dy)
+    {
+        if (SelectedLayer == null) return;
+        SelectedLayer.X = Math.Max(0, SelectedLayer.X + dx);
+        SelectedLayer.Y = Math.Max(0, SelectedLayer.Y + dy);
+    }
+
+    // --- 3 Bố cục mẫu kiểu RTSS Overlay Editor (1 chạm áp dụng ngay!) ---
+
+    /// <summary>
+    /// Mẫu 1: Thanh ngang Pill kiểu RTSS (pill.ovl): | CPU | 50°C | 45W | GPU | 41°C | 32W | FPS | 62 |
+    /// </summary>
+    public void ApplyPresetPill()
+    {
+        _isRestoring = true;
+        try
+        {
+            ShowOuterFrame = false;
+            DefaultCellBgColorHex = "#0A0C10";
+            DefaultCellBgOpacity = 84;
+            DefaultCellBorderEnabled = true;
+            DefaultCellBorderColorHex = "#FFFFFF";
+            DefaultCellBorderOpacity = 26;
+            DefaultCellBorderThickness = 1.0;
+            DefaultCellCornerRadius = 0;
+            CellPaddingH = 8;
+            CellPaddingV = 4;
+            GlobalLabelValueGap = 6;
+            GlobalContentAlignment = CellContentAlignment.InlineWithGap;
+            TextColorHex = "#FFFFFF";
+            LabelColorHex = "#60CDFF";
+
+            OverlayLayers.Clear();
+            double x = 16;
+            double y = 16;
+            double h = 32;
+            int z = 10;
+
+            void AddLabelPill(string text, string colorHex, double w)
+            {
+                var l = new OverlayLayerViewModel(this, OverlayLayerKind.StaticText, null, x, y, w, h, z++);
+                l.ApplyStyleConfig(new CellStyleConfig
+                {
+                    UseGlobalStyle = true,
+                    CustomLabel = text,
+                    DisplayMode = LayerDisplayMode.LabelOnly,
+                    LabelColorHex = colorHex
+                });
+                OverlayLayers.Add(l);
+                x += w;
+            }
+
+            void AddValPill(string metricId, double w, string? valColor = null)
+            {
+                if (!_metricsById.TryGetValue(metricId, out var m)) return;
+                var l = new OverlayLayerViewModel(this, OverlayLayerKind.Metric, m, x, y, w, h, z++);
+                l.ApplyStyleConfig(new CellStyleConfig
+                {
+                    UseGlobalStyle = true,
+                    DisplayMode = LayerDisplayMode.ValueOnly,
+                    ValueColorHex = valColor
+                });
+                OverlayLayers.Add(l);
+                x += w;
+            }
+
+            AddLabelPill("CPU", "#60CDFF", 48);
+            AddValPill("cpu_temp", 56);
+            AddValPill("cpu_load", 48);
+            AddValPill("cpu_power", 56);
+
+            AddLabelPill("GPU", "#2DD4BF", 48);
+            AddValPill("gpu_0_temp", 56);
+            AddValPill("gpu_0_load", 48);
+            AddValPill("gpu_0_power", 56);
+
+            AddLabelPill("RAM", "#C084FC", 48);
+            AddValPill("ram_percent", 56);
+
+            AddLabelPill("FPS", "#4ADE80", 48);
+            AddValPill("fps_base", 64, "#4ADE80");
+
+            // Thêm hàng Huy hiệu Công nghệ GPU ngay bên dưới thanh Pill
+            if (_metricsById.TryGetValue("gpu_tech_badges", out var badges))
+            {
+                var bLayer = new OverlayLayerViewModel(this, OverlayLayerKind.Metric, badges, 16, y + h + 4, 0, 0, z++);
+                bLayer.ApplyStyleConfig(new CellStyleConfig
+                {
+                    UseGlobalStyle = false,
+                    BackgroundOpacity = 0,
+                    BorderEnabled = false
+                });
+                OverlayLayers.Add(bLayer);
+            }
+
+            SyncMetricPlacedFlags();
+            SelectedLayer = OverlayLayers.FirstOrDefault();
+        }
+        finally
+        {
+            _isRestoring = false;
+        }
+
+        RebuildOuterFrameVisuals();
+        RefreshAllLayerVisuals();
+        SaveConfigNow();
+    }
+
+    /// <summary>
+    /// Mẫu 2: Cột gọn kinh điển RTSS (chữ sắc nét không khung, nhóm GPU / CPU / RAM / FPS + đường đồ thị FPS bên dưới).
+    /// </summary>
+    public void ApplyPresetClassic()
+    {
+        _isRestoring = true;
+        try
+        {
+            ShowOuterFrame = false;
+            DefaultCellBgColorHex = "#0A0C10";
+            DefaultCellBgOpacity = 0;
+            DefaultCellBorderEnabled = false;
+            DefaultCellCornerRadius = 0;
+            CellPaddingH = 4;
+            CellPaddingV = 1;
+            GlobalLabelValueGap = 8;
+            GlobalContentAlignment = CellContentAlignment.InlineWithGap;
+            TextColorHex = "#FACC15";
+            LabelColorHex = "#60CDFF";
+
+            OverlayLayers.Clear();
+            int z = 10;
+
+            void AddRowLabel(string text, string colorHex, double y)
+            {
+                var l = new OverlayLayerViewModel(this, OverlayLayerKind.StaticText, null, 16, y, 48, 22, z++);
+                l.ApplyStyleConfig(new CellStyleConfig
+                {
+                    UseGlobalStyle = true,
+                    CustomLabel = text,
+                    DisplayMode = LayerDisplayMode.LabelOnly,
+                    LabelColorHex = colorHex
+                });
+                OverlayLayers.Add(l);
+            }
+
+            void AddRowVal(string metricId, double x, double y, string colorHex)
+            {
+                if (!_metricsById.TryGetValue(metricId, out var m)) return;
+                var l = new OverlayLayerViewModel(this, OverlayLayerKind.Metric, m, x, y, 0, 22, z++);
+                l.ApplyStyleConfig(new CellStyleConfig
+                {
+                    UseGlobalStyle = true,
+                    DisplayMode = LayerDisplayMode.ValueOnly,
+                    ValueColorHex = colorHex
+                });
+                OverlayLayers.Add(l);
+            }
+
+            // Hàng 1: GPU
+            AddRowLabel("GPU", "#4ADE80", 16);
+            AddRowVal("gpu_0_temp", 72, 16, "#FB923C");
+            AddRowVal("gpu_0_load", 128, 16, "#FB923C");
+            AddRowVal("gpu_0_power", 176, 16, "#FB923C");
+
+            // Hàng 2: VRAM
+            AddRowLabel("VRAM", "#4ADE80", 40);
+            AddRowVal("gpu_0_vram", 72, 40, "#FACC15");
+
+            // Hàng 3: CPU
+            AddRowLabel("CPU", "#60CDFF", 64);
+            AddRowVal("cpu_temp", 72, 64, "#FB923C");
+            AddRowVal("cpu_load", 128, 64, "#FB923C");
+            AddRowVal("cpu_power", 176, 64, "#FB923C");
+
+            // Hàng 4: RAM
+            AddRowLabel("RAM", "#C084FC", 88);
+            AddRowVal("ram_usage", 72, 88, "#FACC15");
+
+            // Hàng 5: FPS
+            AddRowLabel("FPS", "#F87171", 112);
+            AddRowVal("fps_base", 72, 112, "#FFFFFF");
+            AddRowVal("fps_1low", 144, 112, "#CBD5E1");
+
+            // Hàng 6: Đồ thị FPS mỏng gọn bên dưới
+            if (_metricsById.TryGetValue("fps_graph", out var graph))
+            {
+                var gLayer = new OverlayLayerViewModel(this, OverlayLayerKind.Metric, graph, 16, 140, 224, 56, z++);
+                gLayer.ApplyStyleConfig(new CellStyleConfig
+                {
+                    UseGlobalStyle = true,
+                    DisplayMode = LayerDisplayMode.ValueOnly
+                });
+                OverlayLayers.Add(gLayer);
+            }
+
+            SyncMetricPlacedFlags();
+            SelectedLayer = OverlayLayers.FirstOrDefault();
+        }
+        finally
+        {
+            _isRestoring = false;
+        }
+
+        RebuildOuterFrameVisuals();
+        RefreshAllLayerVisuals();
+        SaveConfigNow();
+    }
+
+    /// <summary>
+    /// Mẫu 3: Thẻ phẳng hiện đại bo góc gọn gàng xếp 2 hàng.
+    /// </summary>
+    public void ApplyPresetCards()
+    {
+        _isRestoring = true;
+        try
+        {
+            ShowOuterFrame = false;
+            DefaultCellBgColorHex = "#0E1117";
+            DefaultCellBgOpacity = 80;
+            DefaultCellBorderEnabled = true;
+            DefaultCellBorderColorHex = "#FFFFFF";
+            DefaultCellBorderOpacity = 18;
+            DefaultCellBorderThickness = 1.0;
+            DefaultCellCornerRadius = 6;
+            CellPaddingH = 10;
+            CellPaddingV = 5;
+            GlobalLabelValueGap = 10;
+            GlobalContentAlignment = CellContentAlignment.SpaceBetween;
+            TextColorHex = "#FFFFFF";
+            LabelColorHex = "#94A3B8";
+
+            OverlayLayers.Clear();
+            string[] ids = { "cpu_load", "cpu_temp", "gpu_0_load", "gpu_0_temp", "ram_usage", "fps_base", "net_down", "disk_total_read" };
+            int z = 10;
+            int idx = 0;
+            foreach (var id in ids)
+            {
+                if (!_metricsById.TryGetValue(id, out var m)) continue;
+                int col = idx % 4;
+                int row = idx / 4;
+                var l = new OverlayLayerViewModel(this, OverlayLayerKind.Metric, m, 16 + col * 136, 16 + row * 40, 128, 32, z++);
+                OverlayLayers.Add(l);
+                idx++;
+            }
+
+            if (_metricsById.TryGetValue("fps_graph", out var graph))
+            {
+                var g = new OverlayLayerViewModel(this, OverlayLayerKind.Metric, graph, 16, 100, 264, 64, z++);
+                OverlayLayers.Add(g);
+            }
+            if (_metricsById.TryGetValue("gpu_tech_badges", out var badges))
+            {
+                var b = new OverlayLayerViewModel(this, OverlayLayerKind.Metric, badges, 288, 100, 264, 0, z++);
+                OverlayLayers.Add(b);
+            }
+
+            SyncMetricPlacedFlags();
+            SelectedLayer = OverlayLayers.FirstOrDefault();
+        }
+        finally
+        {
+            _isRestoring = false;
+        }
+
+        RebuildOuterFrameVisuals();
+        RefreshAllLayerVisuals();
+        SaveConfigNow();
+    }
+
+    private void SyncMetricPlacedFlags()
+    {
+        var placed = new HashSet<string>(OverlayLayers.Where(l => l.IsMetricLayer).Select(l => l.MetricId), StringComparer.OrdinalIgnoreCase);
+        foreach (var m in AllMetrics)
+            m.IsPlacedOnGrid = placed.Contains(m.Id);
+    }
+
+    // --- Live Language Refresh ---
     private void OnLanguageChanged()
     {
         OnPropertyChanged(nameof(AdminStatusText));
         OnPropertyChanged(nameof(PresentMonPathDisplay));
         OnPropertyChanged(nameof(HotkeyStatusText));
-        OnPropertyChanged(nameof(BackgroundImageDisplayName));
         OnPropertyChanged(nameof(OverrideTargetGameDisplay));
         OnPropertyChanged(nameof(CloseBehaviorFooterText));
-        OnPropertyChanged(nameof(BackgroundOpacityLabel));
-        OnPropertyChanged(nameof(ClickThroughStatusLabel));
         OnPropertyChanged(nameof(WidgetVisibilityButtonText));
-        OnPropertyChanged(nameof(ActiveMetricCountText));
+        OnPropertyChanged(nameof(LayerCountText));
+        OnPropertyChanged(nameof(SelectedLayerStatusBarText));
 
         FpsStatusText = _lastFpsSnapshot != null
             ? PresentMonService.FormatStatusText(
@@ -1533,68 +1869,27 @@ public sealed class MainViewModel : ObservableObject
             ? GpuTechDetectionSnapshot.FormatNote(
                 _lastGpuTechSnapshot.StatusKind,
                 _lastGpuTechSnapshot.ForegroundExeName,
-                _lastGpuTechSnapshot.LoadedModuleCount)
+                _lastGpuTechSnapshot.LoadedModuleCount,
+                _lastGpuTechSnapshot.ActiveRenderingGpuName)
             : LocalizationService.Instance["GpuDetWaiting"];
 
-        foreach (var g in AvailableGroups)
-            g.RefreshLocalization();
-        foreach (var m in AllMetrics)
-            m.RefreshLocalization();
-        foreach (var gpu in DetectedGpus)
-            gpu.RefreshLocalization();
-        foreach (var group in GpuTechGroups)
-            group.RefreshLocalization();
-        foreach (var opt in FontWeightOptions)
-            opt.RefreshLocalization();
-        foreach (var opt in StretchModeOptions)
-            opt.RefreshLocalization();
-        foreach (var preset in TextColorPresets)
-            preset.RefreshLocalization();
-        foreach (var icon in FluentIconChoices)
-            icon.RefreshLocalization();
+        foreach (var g in AvailableGroups) g.RefreshLocalization();
+        foreach (var m in AllMetrics) m.RefreshLocalization();
+        foreach (var l in OverlayLayers) l.RefreshLocalization();
+        foreach (var mon in Monitors) mon.RefreshLocalization();
+        foreach (var gpu in DetectedGpus) gpu.RefreshLocalization();
+        foreach (var group in GpuTechGroups) group.RefreshLocalization();
+        foreach (var opt in FontWeightOptions) opt.RefreshLocalization();
+        foreach (var opt in AlignmentOptions) opt.RefreshLocalization();
+        foreach (var opt in DisplayModeOptions) opt.RefreshLocalization();
+        foreach (var preset in ColorPresets) preset.RefreshLocalization();
+        foreach (var preset in DarkBgPresets) preset.RefreshLocalization();
+        foreach (var icon in FluentIconChoices) icon.RefreshLocalization();
 
         UpdateGpuVendorSupportStates();
     }
 
-    /// <summary>
-    /// Cập nhật hệ số co giãn nội dung mượt mà theo kích thước cửa sổ Widget trong lúc người dùng kéo cạnh/góc.
-    /// </summary>
-    public void UpdateLiveWidgetSize(double width, double height)
-    {
-        RecalculateContentScale(width, height);
-    }
-
-    private void RecalculateContentScale(double width, double height)
-    {
-        if (!AutoScaleContent || width <= 0 || height <= 0)
-        {
-            ContentScaleFactor = 1.0;
-            return;
-        }
-
-        double areaRatio = Math.Sqrt((width * height) / (ScaleBaselineWidth * ScaleBaselineHeight));
-
-        // Đảm bảo khi kéo thành thanh ngang siêu mỏng thì chữ không cao vượt khung gây cắt chữ
-        double maxByHeight = Math.Max(0.76, (height - 14.0) / Math.Max(22.0, FontSize * 2.0));
-        double maxByWidth = Math.Max(0.76, width / 180.0);
-
-        double raw = Math.Min(areaRatio, Math.Min(maxByHeight, maxByWidth));
-        ContentScaleFactor = Math.Clamp(Math.Round(raw, 3), 0.76, 2.50);
-    }
-
-    private void NotifyScaledMetricsChanged()
-    {
-        OnPropertyChanged(nameof(EffectiveFontSize));
-        OnPropertyChanged(nameof(EffectiveLabelFontSize));
-        OnPropertyChanged(nameof(EffectiveIconFontSize));
-        OnPropertyChanged(nameof(EffectiveBadgeFontSize));
-        OnPropertyChanged(nameof(EffectiveFpsGraphHeight));
-        OnPropertyChanged(nameof(EffectiveHorizontalSpacing));
-        OnPropertyChanged(nameof(EffectiveVerticalSpacing));
-        OnPropertyChanged(nameof(EffectiveWidgetPadding));
-        OnPropertyChanged(nameof(EffectiveGraphMinWidth));
-    }
-
+    // --- Updates ---
     public async System.Threading.Tasks.Task CheckForUpdatesManualAsync()
     {
         if (IsCheckingUpdates) return;
@@ -1605,9 +1900,7 @@ public sealed class MainViewModel : ObservableObject
             var result = await _updateService.CheckForUpdatesAsync();
             UpdateStatusMessage = result.StatusMessage;
             if (result.HasUpdate && result.Release != null)
-            {
                 UpdateAvailableDetected?.Invoke(result.Release);
-            }
         }
         finally
         {
@@ -1626,17 +1919,23 @@ public sealed class MainViewModel : ObservableObject
                 UpdateAvailableDetected?.Invoke(result.Release);
             }
         }
-        catch
-        {
-            // Bỏ qua nhẹ nhàng nếu mất mạng hoặc chưa có bản phát hành trên GitHub
-        }
+        catch { }
     }
 
+    // --- Real-time Sensor, FPS & 3-Layer GPU Tech Feeds ---
     public void ResetFpsStats()
     {
         _presentMonService.ResetStats();
         FpsGraphHistory = Array.Empty<FpsGraphPoint>();
-        ResetFpsToastRequested?.Invoke();
+    }
+
+    public void ApplySensorSnapshot(IReadOnlyDictionary<string, string> snapshot)
+    {
+        foreach (var kv in snapshot)
+        {
+            if (_metricsById.TryGetValue(kv.Key, out var item))
+                item.FormattedValue = kv.Value;
+        }
     }
 
     public void ApplyFpsSnapshot(FpsSnapshot snap)
@@ -1649,7 +1948,7 @@ public sealed class MainViewModel : ObservableObject
         IsGameActive = snap.IsGameActive;
         _isFrameGenActive = snap.FrameGenFps.HasValue;
 
-        _gpuTechDetectorService.UpdatePresentMonHint(snap.IsGameActive, snap.ActiveGameName, snap.FrameGenSource);
+        _gpuTechDetectorService.UpdatePresentMonMetrics(snap);
 
         SetMetricValue("fps_base", snap.BaseFps.HasValue ? $"{snap.BaseFps.Value:F0} FPS" : "--");
         SetMetricValue("fps_framegen", snap.FrameGenFps.HasValue ? $"{snap.FrameGenFps.Value:F0} FPS" : "--");
@@ -1670,9 +1969,17 @@ public sealed class MainViewModel : ObservableObject
     {
         _lastGpuTechSnapshot = snap;
         GpuDetectionStatusText = GpuTechDetectionSnapshot.FormatNote(
-            snap.StatusKind, snap.ForegroundExeName, snap.LoadedModuleCount);
+            snap.StatusKind, snap.ForegroundExeName, snap.LoadedModuleCount, snap.ActiveRenderingGpuName);
         _isGpuTechGameActive = snap.IsGameActive;
-        _lastAutoDetectedTechIds = new HashSet<string>(snap.DetectedTechIds, StringComparer.OrdinalIgnoreCase);
+        _lastAutoDetectedTechSources = new Dictionary<string, GpuTechDetectionSource>(
+            snap.DetectedTechSources, StringComparer.OrdinalIgnoreCase);
+
+        foreach (var gpu in DetectedGpus)
+        {
+            gpu.IsActiveRenderingGpu = snap.IsGameActive &&
+                                       ((!string.IsNullOrEmpty(snap.ActiveRenderingGpuId) && gpu.Id == snap.ActiveRenderingGpuId) ||
+                                        (string.IsNullOrEmpty(snap.ActiveRenderingGpuId) && snap.ActiveRenderingVendor == gpu.Vendor && gpu.IsDiscrete));
+        }
 
         if (snap.IsGameActive && !string.IsNullOrWhiteSpace(snap.ForegroundExeName))
         {
@@ -1681,8 +1988,21 @@ public sealed class MainViewModel : ObservableObject
         }
 
         foreach (var group in GpuTechGroups)
+        {
             foreach (var tech in group.Items)
-                tech.IsAutoDetected = snap.IsGameActive && _lastAutoDetectedTechIds.Contains(tech.Id);
+            {
+                if (snap.IsGameActive && _lastAutoDetectedTechSources.TryGetValue(tech.Id, out var src))
+                {
+                    tech.IsAutoDetected = true;
+                    tech.AutoDetectionSource = src;
+                }
+                else
+                {
+                    tech.IsAutoDetected = false;
+                    tech.AutoDetectionSource = GpuTechDetectionSource.None;
+                }
+            }
+        }
 
         RebuildActiveGpuBadges();
         UpdateFpsMetricsVisibility();
@@ -1750,21 +2070,18 @@ public sealed class MainViewModel : ObservableObject
                 {
                     GameTechOverrideState.ForceOn => true,
                     GameTechOverrideState.ForceOff => false,
-                    _ => _isGpuTechGameActive && _lastAutoDetectedTechIds.Contains(tech.Id)
+                    _ => _isGpuTechGameActive && _lastAutoDetectedTechSources.ContainsKey(tech.Id)
                 };
 
                 if (!show) continue;
 
                 Color baseColor = GetBadgeColor(tech.Vendor);
-                var bg = new SolidColorBrush(Color.FromArgb(46, baseColor.R, baseColor.G, baseColor.B));
-                bg.Freeze();
-                var border = new SolidColorBrush(Color.FromArgb(185, baseColor.R, baseColor.G, baseColor.B));
-                border.Freeze();
-                var text = new SolidColorBrush(Color.FromArgb(255,
+                var bg = Freeze(new SolidColorBrush(Color.FromArgb(46, baseColor.R, baseColor.G, baseColor.B)));
+                var border = Freeze(new SolidColorBrush(Color.FromArgb(185, baseColor.R, baseColor.G, baseColor.B)));
+                var text = Freeze(new SolidColorBrush(Color.FromArgb(255,
                     (byte)Math.Min(255, baseColor.R + 70),
                     (byte)Math.Min(255, baseColor.G + 70),
-                    (byte)Math.Min(255, baseColor.B + 70)));
-                text.Freeze();
+                    (byte)Math.Min(255, baseColor.B + 70))));
 
                 ActiveGpuBadges.Add(new ActiveGpuBadge
                 {
@@ -1798,97 +2115,128 @@ public sealed class MainViewModel : ObservableObject
         };
     }
 
-    private void RebuildBackgroundImageBrush()
-    {
-        if (!HasBackgroundImage)
-        {
-            WidgetBackgroundImageBrush = null;
-            OnPropertyChanged(nameof(WidgetBorderBrush));
-            OnPropertyChanged(nameof(WidgetTextShadowOpacity));
-            return;
-        }
-
-        try
-        {
-            var bmp = new BitmapImage();
-            bmp.BeginInit();
-            bmp.CacheOption = BitmapCacheOption.OnLoad;
-            bmp.UriSource = new Uri(_backgroundImagePath, UriKind.Absolute);
-            bmp.EndInit();
-            bmp.Freeze();
-
-            var brush = new ImageBrush(bmp)
-            {
-                Opacity = Math.Clamp(_backgroundImageOpacity / 100.0, 0.0, 1.0),
-                Stretch = _backgroundImageStretch switch
-                {
-                    BackgroundImageStretchMode.Uniform => Stretch.Uniform,
-                    BackgroundImageStretchMode.Fill => Stretch.Fill,
-                    _ => Stretch.UniformToFill
-                }
-            };
-            brush.Freeze();
-            WidgetBackgroundImageBrush = brush;
-        }
-        catch { WidgetBackgroundImageBrush = null; }
-
-        OnPropertyChanged(nameof(WidgetBorderBrush));
-        OnPropertyChanged(nameof(WidgetTextShadowOpacity));
-    }
-
     private void UpdateFpsMetricsVisibility()
     {
         foreach (var item in AllMetrics)
         {
             if (item.Category != MetricCategory.Fps)
             {
-                item.IsVisibleOnWidget = true;
+                item.IsVisibleOnOverlay = true;
                 continue;
             }
 
             if (item.IsGpuBadgesMetric)
             {
-                item.IsVisibleOnWidget = HasActiveGpuBadges || !AutoHideFpsWhenIdle;
+                item.IsVisibleOnOverlay = HasActiveGpuBadges || !AutoHideFpsWhenIdle;
                 continue;
             }
 
             if (AutoHideFpsWhenIdle && !IsGameActive)
             {
-                item.IsVisibleOnWidget = false;
+                item.IsVisibleOnOverlay = false;
                 continue;
             }
 
             if (item.Id == "fps_framegen" && AutoHideFrameGenWhenInactive && !_isFrameGenActive)
             {
-                item.IsVisibleOnWidget = false;
+                item.IsVisibleOnOverlay = false;
                 continue;
             }
 
-            item.IsVisibleOnWidget = true;
+            item.IsVisibleOnOverlay = true;
         }
     }
 
-    private void EnsureGameProfileExists(string exeName)
+    private void UpdateGpuVendorSupportStates()
     {
-        if (!_gameTechProfiles.ContainsKey(exeName))
-            _gameTechProfiles[exeName] = new Dictionary<string, GameTechOverrideState>(StringComparer.OrdinalIgnoreCase);
-        RebuildSavedGameProfileNames();
+        var presentVendors = new HashSet<GpuVendor>(DetectedGpus.Select(g => g.Vendor));
+        SupportedGpuTechItems.Clear();
+
+        foreach (var group in GpuTechGroups)
+        {
+            bool supported = presentVendors.Contains(group.Vendor);
+            group.IsSupported = supported;
+            group.IsVisible = supported || !HideUnsupportedGpuTechs;
+
+            if (supported)
+            {
+                var names = DetectedGpus.Where(g => g.Vendor == group.Vendor).Select(g => g.Name);
+                group.SupportBadgeText = LocalizationService.Instance.Format("GpuAvailableBadge", string.Join(", ", names));
+
+                foreach (var item in group.Items)
+                    SupportedGpuTechItems.Add(item);
+            }
+            else
+            {
+                group.SupportBadgeText = LocalizationService.Instance["GpuVendorMissingBadge"];
+            }
+        }
+
+        RebuildActiveGpuBadges();
     }
 
-    private void RebuildSavedGameProfileNames()
+    private void RefreshMonitorsList(string? preferredDeviceName)
     {
-        var current = CurrentOverrideGameExe;
-        SavedGameProfileNames.Clear();
-        foreach (var key in _gameTechProfiles.Keys.OrderBy(k => k, StringComparer.OrdinalIgnoreCase))
-            SavedGameProfileNames.Add(key);
-        if (!string.IsNullOrWhiteSpace(current) && !SavedGameProfileNames.Contains(current, StringComparer.OrdinalIgnoreCase))
-            SavedGameProfileNames.Insert(0, current);
+        Monitors.Clear();
+        foreach (var m in Win32Helper.EnumerateMonitors())
+            Monitors.Add(m);
+
+        _selectedMonitor = Monitors.FirstOrDefault(m =>
+                               !string.IsNullOrWhiteSpace(preferredDeviceName) &&
+                               m.DeviceName.Equals(preferredDeviceName, StringComparison.OrdinalIgnoreCase))
+                           ?? Monitors.FirstOrDefault(m => m.IsPrimary)
+                           ?? Monitors.FirstOrDefault();
+        OnPropertyChanged(nameof(SelectedMonitor));
     }
 
-    private void SetMetricValue(string id, string value)
+    private void RefreshAllLayerVisuals()
     {
-        if (_metricsById.TryGetValue(id, out var item))
-            item.FormattedValue = value;
+        foreach (var layer in OverlayLayers)
+            layer.RefreshVisuals();
+    }
+
+    private void RebuildOuterFrameVisuals()
+    {
+        if (!_showOuterFrame || _outerFrameBgOpacity <= 0.1)
+        {
+            _cachedOuterBgBrush = TransparentBrush;
+        }
+        else
+        {
+            var c = MetricItem.TryParseHex(_outerFrameBgColorHex, out var parsed) ? parsed : Color.FromRgb(8, 10, 14);
+            byte a = (byte)Math.Clamp(Math.Round(_outerFrameBgOpacity / 100.0 * 255.0), 0, 255);
+            _cachedOuterBgBrush = Freeze(new SolidColorBrush(Color.FromArgb(a, c.R, c.G, c.B)));
+        }
+
+        if (!_showOuterFrame || !_outerFrameBorderEnabled || _outerFrameBorderOpacity <= 0.1)
+        {
+            _cachedOuterBorderBrush = TransparentBrush;
+        }
+        else
+        {
+            var c = MetricItem.TryParseHex(_outerFrameBorderColorHex, out var parsed) ? parsed : Colors.White;
+            byte a = (byte)Math.Clamp(Math.Round(_outerFrameBorderOpacity / 100.0 * 255.0), 0, 255);
+            _cachedOuterBorderBrush = Freeze(new SolidColorBrush(Color.FromArgb(a, c.R, c.G, c.B)));
+        }
+
+        OnPropertyChanged(nameof(EffectiveOuterFrameBackground));
+        OnPropertyChanged(nameof(EffectiveOuterFrameBorderBrush));
+        OnPropertyChanged(nameof(EffectiveOuterFrameBorderThickness));
+        OnPropertyChanged(nameof(EffectiveOuterFrameCornerRadius));
+        OnPropertyChanged(nameof(EffectiveOuterFramePadding));
+    }
+
+    private void NotifyAnchorProperties()
+    {
+        OnPropertyChanged(nameof(IsAnchorTopLeft));
+        OnPropertyChanged(nameof(IsAnchorTopCenter));
+        OnPropertyChanged(nameof(IsAnchorTopRight));
+        OnPropertyChanged(nameof(IsAnchorMiddleLeft));
+        OnPropertyChanged(nameof(IsAnchorMiddleCenter));
+        OnPropertyChanged(nameof(IsAnchorMiddleRight));
+        OnPropertyChanged(nameof(IsAnchorBottomLeft));
+        OnPropertyChanged(nameof(IsAnchorBottomCenter));
+        OnPropertyChanged(nameof(IsAnchorBottomRight));
     }
 
     private void PopulateMetricsFromService()
@@ -1900,18 +2248,17 @@ public sealed class MainViewModel : ObservableObject
         var groups = new Dictionary<string, MetricGroupViewModel>();
         foreach (var metric in _hardwareService.DiscoveredMetrics)
         {
-            metric.OnStyleChanged = ScheduleConfigSave;
             _metricsById[metric.Id] = metric;
             AllMetrics.Add(metric);
 
             if (!groups.TryGetValue(metric.GroupKey, out var groupVm))
             {
-                var capturedMetric = metric;
+                var captured = metric;
                 groupVm = new MetricGroupViewModel
                 {
                     GroupKey = metric.GroupKey,
-                    TitleProvider = () => capturedMetric.GroupTitle,
-                    SubtitleProvider = () => capturedMetric.GroupSubtitle
+                    TitleProvider = () => captured.GroupTitle,
+                    SubtitleProvider = () => captured.GroupSubtitle
                 };
                 groups[metric.GroupKey] = groupVm;
                 AvailableGroups.Add(groupVm);
@@ -2002,35 +2349,53 @@ public sealed class MainViewModel : ObservableObject
             _selectedLanguage = lang;
             LocalizationService.Instance.CurrentLanguageCode = lang.Code;
 
-            _widgetLeft = cfg.WidgetLeft;
-            _widgetTop = cfg.WidgetTop;
-            _widgetWidth = cfg.WidgetWidth;
-            _widgetHeight = cfg.WidgetHeight;
-            _backgroundOpacity = cfg.BackgroundOpacity;
-            _backgroundColorHex = cfg.BackgroundColorHex;
-            _textColorHex = cfg.TextColorHex;
+            _overlayAnchor = cfg.OverlayAnchor;
+            _overlayOffsetX = cfg.OverlayOffsetX;
+            _overlayOffsetY = cfg.OverlayOffsetY;
+            RefreshMonitorsList(cfg.MonitorDeviceName);
+            _isWidgetTopmost = cfg.IsWidgetTopmost;
+            _isWidgetVisible = cfg.IsWidgetVisible;
+            _enableToggleOverlayHotkey = cfg.EnableToggleOverlayHotkey;
 
-            // Font Family, FontSize (10-36), FontWeight (7 levels)
+            _showEditorGrid = cfg.ShowEditorGrid;
+            _snapToGrid = cfg.SnapToGrid;
+            _gridSnapSize = cfg.GridSnapSize;
+            _cellPaddingH = cfg.CellPaddingH;
+            _cellPaddingV = cfg.CellPaddingV;
+            _globalLabelValueGap = cfg.GlobalLabelValueGap;
+            _globalContentAlignment = cfg.GlobalContentAlignment;
+
             _selectedFontFamily = InstalledFontFamilies.FirstOrDefault(f =>
                                       f.Source.Equals(cfg.FontFamilyName, StringComparison.OrdinalIgnoreCase))
                                   ?? InstalledFontFamilies.FirstOrDefault(f =>
                                       f.Source.Equals("Segoe UI", StringComparison.OrdinalIgnoreCase))
                                   ?? InstalledFontFamilies.First();
-            _fontSize = Math.Clamp(cfg.FontSize, 10, 36);
+            _fontSize = cfg.FontSize;
             _selectedFontWeightOption = FontWeightOptions.FirstOrDefault(w =>
                                             w.Key.Equals(cfg.FontWeightName, StringComparison.OrdinalIgnoreCase))
                                         ?? FontWeightOptions[4];
+            _textColorHex = cfg.TextColorHex;
+            _labelColorHex = cfg.LabelColorHex;
+            _globalValueBrush = CreateFrozenBrush(_textColorHex, Colors.White);
+            _globalLabelBrush = CreateFrozenBrush(_labelColorHex, Color.FromRgb(96, 205, 255));
 
-            _autoScaleContent = cfg.AutoScaleContent;
-            _blurMode = cfg.BlurMode;
-            _cornerRadius = cfg.CornerRadius;
-            _isClickThrough = cfg.IsClickThrough;
-            _isWidgetTopmost = cfg.IsWidgetTopmost;
-            _isWidgetVisible = cfg.IsWidgetVisible;
+            _defaultCellBgColorHex = cfg.DefaultCellBgColorHex;
+            _defaultCellBgOpacity = cfg.DefaultCellBgOpacity;
+            _defaultCellBorderEnabled = cfg.DefaultCellBorderEnabled;
+            _defaultCellBorderColorHex = cfg.DefaultCellBorderColorHex;
+            _defaultCellBorderOpacity = cfg.DefaultCellBorderOpacity;
+            _defaultCellBorderThickness = cfg.DefaultCellBorderThickness;
+            _defaultCellCornerRadius = cfg.DefaultCellCornerRadius;
 
-            _backgroundImagePath = cfg.BackgroundImagePath ?? string.Empty;
-            _backgroundImageOpacity = cfg.BackgroundImageOpacity;
-            _backgroundImageStretch = cfg.BackgroundImageStretch;
+            _showOuterFrame = cfg.ShowOuterFrame;
+            _outerFrameBgColorHex = cfg.OuterFrameBgColorHex;
+            _outerFrameBgOpacity = cfg.OuterFrameBgOpacity;
+            _outerFrameBorderEnabled = cfg.OuterFrameBorderEnabled;
+            _outerFrameBorderColorHex = cfg.OuterFrameBorderColorHex;
+            _outerFrameBorderOpacity = cfg.OuterFrameBorderOpacity;
+            _outerFrameBorderThickness = cfg.OuterFrameBorderThickness;
+            _outerFrameCornerRadius = cfg.OuterFrameCornerRadius;
+            _outerFramePadding = cfg.OuterFramePadding;
 
             _autoHideFpsWhenIdle = cfg.AutoHideFpsWhenIdle;
             _autoHideFrameGenWhenInactive = cfg.AutoHideFrameGenWhenInactive;
@@ -2042,47 +2407,36 @@ public sealed class MainViewModel : ObservableObject
             _minimizeToTrayOnClose = cfg.MinimizeToTrayOnClose;
             _autoCheckUpdatesOnStartup = cfg.AutoCheckUpdatesOnStartup;
 
-            foreach (var item in AllMetrics)
+            // Nạp các lớp Canvas
+            OverlayLayers.Clear();
+            if (cfg.OverlayLayers is { Count: > 0 })
             {
-                cfg.MetricStyles.TryGetValue(item.Id, out var style);
-                item.ApplyStyleConfig(style);
-            }
-
-            ActiveMetrics.Clear();
-            foreach (var item in _metricsById.Values)
-                item.IsSelected = false;
-
-            var idsToLoad = cfg.SelectedMetricIds is { Count: > 0 }
-                ? cfg.SelectedMetricIds
-                : _hardwareService.DefaultMetricIds.ToList();
-
-            foreach (var id in idsToLoad)
-            {
-                if (_metricsById.TryGetValue(id, out var metric) && !metric.IsSelected)
+                foreach (var lc in cfg.OverlayLayers)
                 {
-                    metric.IsSelected = true;
-                    ActiveMetrics.Add(metric);
-                }
-            }
-
-            if (ActiveMetrics.Count == 0)
-            {
-                foreach (var id in _hardwareService.DefaultMetricIds)
-                {
-                    if (_metricsById.TryGetValue(id, out var metric) && !metric.IsSelected)
+                    MetricItem? metric = null;
+                    if (lc.Kind == OverlayLayerKind.Metric)
                     {
-                        metric.IsSelected = true;
-                        ActiveMetrics.Add(metric);
+                        if (string.IsNullOrWhiteSpace(lc.MetricId) || !_metricsById.TryGetValue(lc.MetricId, out metric))
+                            continue;
                     }
+
+                    var layer = new OverlayLayerViewModel(this, lc.Kind, metric, lc.X, lc.Y, lc.Width, lc.Height, lc.ZIndex, lc.LayerId);
+                    if (lc.Style != null) layer.ApplyStyleConfig(lc.Style);
+                    OverlayLayers.Add(layer);
                 }
             }
 
-            _gpuTechMode = cfg.GpuTechMode;
+            if (OverlayLayers.Count == 0)
+                ApplyPresetPill();
+            else
+            {
+                SyncMetricPlacedFlags();
+                SelectedLayer = OverlayLayers.FirstOrDefault();
+            }
+
             _hideUnsupportedGpuTechs = cfg.HideUnsupportedGpuTechs;
             _useCustomGpuBadgeColor = cfg.UseCustomGpuBadgeColor;
             _customGpuBadgeColorHex = cfg.CustomGpuBadgeColorHex;
-            _selectedPrimaryGpu = DetectedGpus.FirstOrDefault(g => g.Id == cfg.SelectedPrimaryGpuId)
-                                  ?? DetectedGpus.FirstOrDefault();
 
             bool hasSavedTechs = cfg.EnabledGpuTechIds is { Count: > 0 };
             var enabledSet = new HashSet<string>(cfg.EnabledGpuTechIds ?? new List<string>(), StringComparer.OrdinalIgnoreCase);
@@ -2106,187 +2460,27 @@ public sealed class MainViewModel : ObservableObject
         }
     }
 
-    private void RebuildFilteredCustomizationMetrics()
-    {
-        var previous = SelectedCustomizationMetric;
-        FilteredCustomizationMetrics.Clear();
-
-        IEnumerable<MetricItem> source = ShowOnlyActiveInCustomization ? ActiveMetrics : AllMetrics;
-        foreach (var item in source)
-            FilteredCustomizationMetrics.Add(item);
-
-        if (previous != null && FilteredCustomizationMetrics.Contains(previous))
-            SelectedCustomizationMetric = previous;
-        else
-            SelectedCustomizationMetric = FilteredCustomizationMetrics.FirstOrDefault();
-    }
-
-    private void RefreshAllMetricsInheritedTheme()
-    {
-        var labelBrush = WidgetSecondaryTextBrush;
-        var valueBrush = WidgetTextBrush;
-        bool isLight = IsLightBackground;
-
-        foreach (var metric in AllMetrics)
-            metric.RefreshInheritedTheme(labelBrush, valueBrush, isLight, ContentScaleFactor);
-    }
-
-    private void UpdateGpuVendorSupportStates()
-    {
-        var activeVendors = new HashSet<GpuVendor>();
-
-        if (GpuTechMode == GpuTechMode.SinglePrimaryGpu && SelectedPrimaryGpu != null)
-            activeVendors.Add(SelectedPrimaryGpu.Vendor);
-        else
-            foreach (var gpu in DetectedGpus)
-                activeVendors.Add(gpu.Vendor);
-
-        SupportedGpuTechItems.Clear();
-
-        foreach (var group in GpuTechGroups)
-        {
-            bool hasOnMachine = DetectedGpus.Any(g => g.Vendor == group.Vendor);
-            bool supported = activeVendors.Contains(group.Vendor);
-
-            group.IsSupported = supported;
-            group.IsVisible = supported || !HideUnsupportedGpuTechs;
-
-            if (supported)
-            {
-                var names = DetectedGpus
-                    .Where(g => g.Vendor == group.Vendor &&
-                                (GpuTechMode == GpuTechMode.AutoAllGpus || g.Id == SelectedPrimaryGpu?.Id))
-                    .Select(g => g.Name);
-                group.SupportBadgeText = LocalizationService.Instance.Format("GpuAvailableBadge", string.Join(", ", names));
-
-                foreach (var item in group.Items)
-                    SupportedGpuTechItems.Add(item);
-            }
-            else if (hasOnMachine && GpuTechMode == GpuTechMode.SinglePrimaryGpu)
-            {
-                group.SupportBadgeText = LocalizationService.Instance["GpuNotPrimaryBadge"];
-            }
-            else
-            {
-                group.SupportBadgeText = LocalizationService.Instance["GpuVendorMissingBadge"];
-            }
-        }
-
-        RebuildActiveGpuBadges();
-    }
-
-    public void ApplySensorSnapshot(IReadOnlyDictionary<string, string> snapshot)
-    {
-        foreach (var kv in snapshot)
-        {
-            if (_metricsById.TryGetValue(kv.Key, out var item))
-                item.FormattedValue = kv.Value;
-        }
-    }
-
-    public void ToggleMetric(MetricItem item)
-    {
-        if (item.IsSelected) RemoveMetric(item);
-        else AddMetricAt(item.Id, ActiveMetrics.Count);
-    }
-
-    public void AddMetricAt(string metricId, int insertIndex)
-    {
-        if (!_metricsById.TryGetValue(metricId, out var item)) return;
-
-        if (item.IsSelected)
-        {
-            int existingIdx = ActiveMetrics.IndexOf(item);
-            if (existingIdx >= 0)
-            {
-                int target = Math.Clamp(insertIndex, 0, ActiveMetrics.Count - 1);
-                if (existingIdx != target) MoveActiveMetric(existingIdx, target);
-            }
-            return;
-        }
-
-        int clampedIdx = Math.Clamp(insertIndex, 0, ActiveMetrics.Count);
-        item.IsSelected = true;
-        ActiveMetrics.Insert(clampedIdx, item);
-        ScheduleConfigSave();
-    }
-
-    public void RemoveMetric(MetricItem item)
-    {
-        if (!item.IsSelected) return;
-        item.IsSelected = false;
-        ActiveMetrics.Remove(item);
-        ScheduleConfigSave();
-    }
-
-    public void MoveActiveMetric(int oldIndex, int newIndex)
-    {
-        if (oldIndex < 0 || oldIndex >= ActiveMetrics.Count) return;
-        int targetIndex = Math.Clamp(newIndex, 0, ActiveMetrics.Count - 1);
-        if (oldIndex == targetIndex) return;
-        ActiveMetrics.Move(oldIndex, targetIndex);
-        ScheduleConfigSave();
-    }
-
-    public void UpdateWidgetBounds(double left, double top, double width, double height)
-    {
-        bool changed = false;
-        if (Math.Abs(_widgetLeft - left) > 0.5)
-        {
-            _widgetLeft = Math.Round(left);
-            OnPropertyChanged(nameof(WidgetLeft));
-            changed = true;
-        }
-        if (Math.Abs(_widgetTop - top) > 0.5)
-        {
-            _widgetTop = Math.Round(top);
-            OnPropertyChanged(nameof(WidgetTop));
-            changed = true;
-        }
-        double clampedW = Math.Clamp(Math.Round(width), 150, 2400);
-        if (Math.Abs(_widgetWidth - clampedW) > 0.5)
-        {
-            _widgetWidth = clampedW;
-            OnPropertyChanged(nameof(WidgetWidth));
-            changed = true;
-        }
-        double clampedH = Math.Clamp(Math.Round(height), 42, 1600);
-        if (Math.Abs(_widgetHeight - clampedH) > 0.5)
-        {
-            _widgetHeight = clampedH;
-            OnPropertyChanged(nameof(WidgetHeight));
-            changed = true;
-        }
-
-        RecalculateContentScale(_widgetWidth, _widgetHeight);
-
-        if (changed) ScheduleConfigSave();
-    }
-
     public void ResetToDefaults()
     {
         _isRestoring = true;
         try
         {
-            BackgroundOpacity = 78;
-            BackgroundColorHex = "#141419";
-            TextColorHex = "#FFFFFF";
+            OverlayAnchor = OverlayAnchor.TopLeft;
+            OverlayOffsetX = 16;
+            OverlayOffsetY = 16;
+            RefreshMonitorsList(null);
+            IsWidgetTopmost = true;
+            IsWidgetVisible = true;
+            EnableToggleOverlayHotkey = true;
+
+            ShowEditorGrid = true;
+            SnapToGrid = true;
+            GridSnapSize = 8;
+
             SelectedFontFamily = InstalledFontFamilies.FirstOrDefault(f => f.Source.Equals("Segoe UI", StringComparison.OrdinalIgnoreCase))
                                  ?? InstalledFontFamilies.First();
             FontSize = 13;
             SelectedFontWeightOption = FontWeightOptions[4];
-            AutoScaleContent = true;
-            BlurMode = WidgetBlurMode.Off;
-            CornerRadius = 14;
-            IsClickThrough = false;
-            IsWidgetTopmost = true;
-            IsWidgetVisible = true;
-            WidgetWidth = ScaleBaselineWidth;
-            WidgetHeight = ScaleBaselineHeight;
-
-            BackgroundImagePath = string.Empty;
-            BackgroundImageOpacity = 85;
-            BackgroundImageStretch = BackgroundImageStretchMode.UniformToFill;
 
             AutoHideFpsWhenIdle = false;
             AutoHideFrameGenWhenInactive = false;
@@ -2296,28 +2490,10 @@ public sealed class MainViewModel : ObservableObject
             MinimizeToTrayOnClose = true;
             AutoCheckUpdatesOnStartup = true;
 
+            HideUnsupportedGpuTechs = false;
             UseCustomGpuBadgeColor = false;
             CustomGpuBadgeColorHex = "#60CDFF";
 
-            foreach (var item in AllMetrics)
-            {
-                item.IsSelected = false;
-                item.ApplyStyleConfig(null);
-            }
-            ActiveMetrics.Clear();
-
-            foreach (var id in _hardwareService.DefaultMetricIds)
-            {
-                if (_metricsById.TryGetValue(id, out var metric))
-                {
-                    metric.IsSelected = true;
-                    ActiveMetrics.Add(metric);
-                }
-            }
-
-            GpuTechMode = GpuTechMode.AutoAllGpus;
-            HideUnsupportedGpuTechs = false;
-            SelectedPrimaryGpu = DetectedGpus.FirstOrDefault();
             foreach (var group in GpuTechGroups)
                 foreach (var tech in group.Items)
                     tech.SetEnabledSilent(true);
@@ -2327,25 +2503,29 @@ public sealed class MainViewModel : ObservableObject
             _isRestoring = false;
         }
 
-        RecalculateContentScale(_widgetWidth, _widgetHeight);
-        RefreshAllMetricsInheritedTheme();
+        ApplyPresetPill();
         UpdateGpuVendorSupportStates();
         RebuildActiveGpuBadges();
         UpdateFpsMetricsVisibility();
-        BlurSettingsChanged?.Invoke();
-        CenterWidgetRequested?.Invoke();
-        SaveConfigNow();
+        OverlayPositionChanged?.Invoke();
     }
 
     public AppConfig BuildConfigSnapshot()
     {
-        var styles = new Dictionary<string, MetricStyleConfig>();
-        foreach (var item in AllMetrics)
-        {
-            var exported = item.ExportStyleConfig();
-            if (exported != null)
-                styles[item.Id] = exported;
-        }
+        var layers = OverlayLayers
+            .Select(l => new OverlayLayerConfig
+            {
+                LayerId = l.LayerId,
+                Kind = l.Kind,
+                MetricId = l.IsMetricLayer ? l.MetricId : null,
+                X = l.X,
+                Y = l.Y,
+                Width = l.Width,
+                Height = l.Height,
+                ZIndex = l.ZIndex,
+                Style = l.ExportStyleConfig()
+            })
+            .ToList();
 
         var enabledGpuTechs = GpuTechGroups
             .SelectMany(g => g.Items)
@@ -2362,28 +2542,44 @@ public sealed class MainViewModel : ObservableObject
 
         return new AppConfig
         {
+            ConfigVersion = 3,
             LanguageCode = _selectedLanguage.Code,
-            WidgetLeft = _widgetLeft,
-            WidgetTop = _widgetTop,
-            WidgetWidth = _widgetWidth,
-            WidgetHeight = _widgetHeight,
-            SelectedMetricIds = ActiveMetrics.Select(m => m.Id).ToList(),
-            MetricStyles = styles,
-            BackgroundOpacity = _backgroundOpacity,
-            BackgroundColorHex = _backgroundColorHex,
-            TextColorHex = _textColorHex,
+            OverlayAnchor = _overlayAnchor,
+            OverlayOffsetX = _overlayOffsetX,
+            OverlayOffsetY = _overlayOffsetY,
+            MonitorDeviceName = _selectedMonitor?.DeviceName,
+            IsWidgetTopmost = _isWidgetTopmost,
+            IsWidgetVisible = _isWidgetVisible,
+            EnableToggleOverlayHotkey = _enableToggleOverlayHotkey,
+            ShowEditorGrid = _showEditorGrid,
+            SnapToGrid = _snapToGrid,
+            GridSnapSize = _gridSnapSize,
+            CellPaddingH = _cellPaddingH,
+            CellPaddingV = _cellPaddingV,
+            GlobalLabelValueGap = _globalLabelValueGap,
+            GlobalContentAlignment = _globalContentAlignment,
+            OverlayLayers = layers,
             FontFamilyName = _selectedFontFamily.Source,
             FontSize = _fontSize,
             FontWeightName = _selectedFontWeightOption.Key,
-            AutoScaleContent = _autoScaleContent,
-            BlurMode = _blurMode,
-            CornerRadius = _cornerRadius,
-            IsClickThrough = _isClickThrough,
-            IsWidgetTopmost = _isWidgetTopmost,
-            IsWidgetVisible = _isWidgetVisible,
-            BackgroundImagePath = string.IsNullOrWhiteSpace(_backgroundImagePath) ? null : _backgroundImagePath,
-            BackgroundImageOpacity = _backgroundImageOpacity,
-            BackgroundImageStretch = _backgroundImageStretch,
+            TextColorHex = _textColorHex,
+            LabelColorHex = _labelColorHex,
+            DefaultCellBgColorHex = _defaultCellBgColorHex,
+            DefaultCellBgOpacity = _defaultCellBgOpacity,
+            DefaultCellBorderEnabled = _defaultCellBorderEnabled,
+            DefaultCellBorderColorHex = _defaultCellBorderColorHex,
+            DefaultCellBorderOpacity = _defaultCellBorderOpacity,
+            DefaultCellBorderThickness = _defaultCellBorderThickness,
+            DefaultCellCornerRadius = _defaultCellCornerRadius,
+            ShowOuterFrame = _showOuterFrame,
+            OuterFrameBgColorHex = _outerFrameBgColorHex,
+            OuterFrameBgOpacity = _outerFrameBgOpacity,
+            OuterFrameBorderEnabled = _outerFrameBorderEnabled,
+            OuterFrameBorderColorHex = _outerFrameBorderColorHex,
+            OuterFrameBorderOpacity = _outerFrameBorderOpacity,
+            OuterFrameBorderThickness = _outerFrameBorderThickness,
+            OuterFrameCornerRadius = _outerFrameCornerRadius,
+            OuterFramePadding = _outerFramePadding,
             AutoHideFpsWhenIdle = _autoHideFpsWhenIdle,
             AutoHideFrameGenWhenInactive = _autoHideFrameGenWhenInactive,
             FpsGraphHeight = _fpsGraphHeight,
@@ -2392,8 +2588,6 @@ public sealed class MainViewModel : ObservableObject
             RunAtWindowsStartup = _runAtWindowsStartup,
             MinimizeToTrayOnClose = _minimizeToTrayOnClose,
             AutoCheckUpdatesOnStartup = _autoCheckUpdatesOnStartup,
-            GpuTechMode = _gpuTechMode,
-            SelectedPrimaryGpuId = _selectedPrimaryGpu?.Id,
             HideUnsupportedGpuTechs = _hideUnsupportedGpuTechs,
             EnabledGpuTechIds = enabledGpuTechs,
             UseCustomGpuBadgeColor = _useCustomGpuBadgeColor,
@@ -2410,6 +2604,29 @@ public sealed class MainViewModel : ObservableObject
         _configService.ScheduleSave(BuildConfigSnapshot);
     }
 
+    private void EnsureGameProfileExists(string exeName)
+    {
+        if (!_gameTechProfiles.ContainsKey(exeName))
+            _gameTechProfiles[exeName] = new Dictionary<string, GameTechOverrideState>(StringComparer.OrdinalIgnoreCase);
+        RebuildSavedGameProfileNames();
+    }
+
+    private void RebuildSavedGameProfileNames()
+    {
+        var current = CurrentOverrideGameExe;
+        SavedGameProfileNames.Clear();
+        foreach (var key in _gameTechProfiles.Keys.OrderBy(k => k, StringComparer.OrdinalIgnoreCase))
+            SavedGameProfileNames.Add(key);
+        if (!string.IsNullOrWhiteSpace(current) && !SavedGameProfileNames.Contains(current, StringComparer.OrdinalIgnoreCase))
+            SavedGameProfileNames.Insert(0, current);
+    }
+
+    private void SetMetricValue(string id, string value)
+    {
+        if (_metricsById.TryGetValue(id, out var item))
+            item.FormattedValue = value;
+    }
+
     private static string NormalizeHex(string? value)
     {
         if (string.IsNullOrWhiteSpace(value)) return string.Empty;
@@ -2421,23 +2638,23 @@ public sealed class MainViewModel : ObservableObject
     private static ColorPreset MakePreset(string nameKey, string hex)
     {
         MetricItem.TryParseHex(hex, out var color);
-        var brush = new SolidColorBrush(color);
-        brush.Freeze();
-        return new ColorPreset { NameKey = nameKey, Hex = hex, Brush = brush };
+        return new ColorPreset { NameKey = nameKey, Hex = hex, Brush = Freeze(new SolidColorBrush(color)) };
     }
 
     private static SolidColorBrush CreateFrozenBrush(string hex, Color fallback)
     {
         var c = MetricItem.TryParseHex(hex, out var parsed) ? parsed : fallback;
-        var b = new SolidColorBrush(c);
-        b.Freeze();
-        return b;
+        return Freeze(new SolidColorBrush(c));
     }
 
     private static SolidColorBrush Freeze(string hex)
     {
         var c = (Color)ColorConverter.ConvertFromString(hex);
-        var b = new SolidColorBrush(c);
+        return Freeze(new SolidColorBrush(c));
+    }
+
+    private static SolidColorBrush Freeze(SolidColorBrush b)
+    {
         b.Freeze();
         return b;
     }

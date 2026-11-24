@@ -14,12 +14,45 @@ public enum GpuVendor
     Other
 }
 
+public enum GpuTechDetectionSource
+{
+    None = 0,
+    MemoryDll = 1,
+    GameFolder = 2,
+    PresentMon = 3,
+    ManualOverride = 4
+}
+
+public readonly record struct GpuRuntimeActivity(
+    string GpuId,
+    string Name,
+    GpuVendor Vendor,
+    bool IsDiscrete,
+    double LoadPercent,
+    double VramUsedMb);
+
 public sealed class DetectedGpuInfo : ObservableObject
 {
+    private bool _isActiveRenderingGpu;
+
     public string Id { get; init; } = string.Empty;
     public string Name { get; init; } = string.Empty;
     public GpuVendor Vendor { get; init; }
     public bool IsDiscrete { get; init; }
+
+    public bool IsActiveRenderingGpu
+    {
+        get => _isActiveRenderingGpu;
+        set
+        {
+            if (SetProperty(ref _isActiveRenderingGpu, value))
+                OnPropertyChanged(nameof(RenderingStatusBadge));
+        }
+    }
+
+    public string RenderingStatusBadge => IsActiveRenderingGpu
+        ? LocalizationService.Instance["GpuActiveRenderingBadge"]
+        : string.Empty;
 
     public string VendorDisplayName => Vendor switch
     {
@@ -48,6 +81,7 @@ public sealed class DetectedGpuInfo : ObservableObject
         OnPropertyChanged(nameof(VendorDisplayName));
         OnPropertyChanged(nameof(KindBadge));
         OnPropertyChanged(nameof(DisplayLabel));
+        OnPropertyChanged(nameof(RenderingStatusBadge));
     }
 
     private static SolidColorBrush Freeze(string hex)
@@ -63,6 +97,7 @@ public sealed class GpuTechItemViewModel : ObservableObject
 {
     private bool _isEnabled;
     private bool _isAutoDetected;
+    private GpuTechDetectionSource _autoDetectionSource = GpuTechDetectionSource.None;
     private GameTechOverrideState _gameOverride = GameTechOverrideState.Auto;
 
     public string Id { get; init; } = string.Empty;
@@ -90,13 +125,35 @@ public sealed class GpuTechItemViewModel : ObservableObject
         set
         {
             if (SetProperty(ref _isAutoDetected, value))
+            {
                 OnPropertyChanged(nameof(AutoDetectedLabel));
+                OnPropertyChanged(nameof(EffectiveSourceLabel));
+            }
         }
     }
 
-    public string AutoDetectedLabel => IsAutoDetected
-        ? LocalizationService.Instance["TechDetected"]
-        : LocalizationService.Instance["TechNotDetected"];
+    public GpuTechDetectionSource AutoDetectionSource
+    {
+        get => _autoDetectionSource;
+        set
+        {
+            if (SetProperty(ref _autoDetectionSource, value))
+            {
+                OnPropertyChanged(nameof(AutoDetectedLabel));
+                OnPropertyChanged(nameof(EffectiveSourceLabel));
+            }
+        }
+    }
+
+    public GpuTechDetectionSource EffectiveSource => _gameOverride switch
+    {
+        GameTechOverrideState.ForceOn => GpuTechDetectionSource.ManualOverride,
+        GameTechOverrideState.ForceOff => GpuTechDetectionSource.None,
+        _ => _isAutoDetected ? _autoDetectionSource : GpuTechDetectionSource.None
+    };
+
+    public string AutoDetectedLabel => FormatSourceLabel(_isAutoDetected ? _autoDetectionSource : GpuTechDetectionSource.None);
+    public string EffectiveSourceLabel => FormatSourceLabel(EffectiveSource);
 
     public GameTechOverrideState GameOverride
     {
@@ -106,6 +163,7 @@ public sealed class GpuTechItemViewModel : ObservableObject
             if (SetProperty(ref _gameOverride, value))
             {
                 OnPropertyChanged(nameof(OverrideLabel));
+                OnPropertyChanged(nameof(EffectiveSourceLabel));
                 OnPropertyChanged(nameof(IsOverrideAuto));
                 OnPropertyChanged(nameof(IsOverrideForceOn));
                 OnPropertyChanged(nameof(IsOverrideForceOff));
@@ -129,6 +187,7 @@ public sealed class GpuTechItemViewModel : ObservableObject
     {
         OnPropertyChanged(nameof(Description));
         OnPropertyChanged(nameof(AutoDetectedLabel));
+        OnPropertyChanged(nameof(EffectiveSourceLabel));
         OnPropertyChanged(nameof(OverrideLabel));
     }
 
@@ -148,10 +207,24 @@ public sealed class GpuTechItemViewModel : ObservableObject
             _gameOverride = state;
             OnPropertyChanged(nameof(GameOverride));
             OnPropertyChanged(nameof(OverrideLabel));
+            OnPropertyChanged(nameof(EffectiveSourceLabel));
             OnPropertyChanged(nameof(IsOverrideAuto));
             OnPropertyChanged(nameof(IsOverrideForceOn));
             OnPropertyChanged(nameof(IsOverrideForceOff));
         }
+    }
+
+    private static string FormatSourceLabel(GpuTechDetectionSource source)
+    {
+        var loc = LocalizationService.Instance;
+        return source switch
+        {
+            GpuTechDetectionSource.MemoryDll => loc["TechSourceMemory"],
+            GpuTechDetectionSource.GameFolder => loc["TechSourceFolder"],
+            GpuTechDetectionSource.PresentMon => loc["TechSourcePresentMon"],
+            GpuTechDetectionSource.ManualOverride => loc["TechSourceManual"],
+            _ => loc["TechNotDetected"]
+        };
     }
 }
 
@@ -201,7 +274,7 @@ public sealed class GpuTechVendorGroupViewModel : ObservableObject
 }
 
 /// <summary>
-/// Huy hiệu nhỏ gọn hiển thị trực tiếp trên Widget nổi.
+/// Huy hiệu nhỏ gọn hiển thị trực tiếp trên Overlay OSD.
 /// </summary>
 public sealed class ActiveGpuBadge
 {

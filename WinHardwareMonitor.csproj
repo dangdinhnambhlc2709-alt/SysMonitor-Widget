@@ -14,7 +14,7 @@
     <RootNamespace>WinHardwareMonitor</RootNamespace>
     <Authors>WinHardwareMonitor</Authors>
     <Product>SysMonitor Widget</Product>
-    <Version>1.0.1</Version>
+    <Version>1.1.0</Version>
   </PropertyGroup>
 
   <ItemGroup>

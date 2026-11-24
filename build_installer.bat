@@ -20,9 +20,9 @@ if "%APP_VERSION%"=="" (
 
 echo [1/3] Phien ban doc tu .csproj: %APP_VERSION%
 
-REM 2. Bien dich va xuat ban Single-File Release
-echo [2/3] Dang bien dich ban Release (win-x64, Single-File)...
-dotnet publish WinHardwareMonitor.csproj -c Release -r win-x64 --self-contained false -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -o publish
+REM 2. Bien dich va xuat ban Single-File Self-Contained Release (tich hop san .NET 8)
+echo [2/3] Dang bien dich ban Release (win-x64, Self-Contained Single-File)...
+dotnet publish WinHardwareMonitor.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -o publish
 if errorlevel 1 (
     echo [LOI] Bien dich that bai
     exit /b 1
@@ -54,7 +54,7 @@ if errorlevel 1 (
 echo.
 echo ============================================================================
 echo   HOAN TAT! Tep cai dat da duoc xuat tai:
-echo   %cd%\installer\output\SysMonitor-Widget-Setup-%APP_VERSION%.exe
+echo   %cd%\Release_Installer\SysMonitor-Widget-Setup-%APP_VERSION%.exe
 echo ============================================================================
 endlocal
 exit /b 0

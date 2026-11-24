@@ -1,92 +1,40 @@
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
+using System.Linq;
 using System.Runtime.InteropServices;
 using System.Security.Principal;
 using System.Windows;
 using System.Windows.Interop;
+using System.Windows.Media;
 using Microsoft.Win32;
 using WinHardwareMonitor.Models;
+using Forms = System.Windows.Forms;
 
 namespace WinHardwareMonitor.Services;
 
+/// <summary>
+/// Các hàm Win32 API gọn nhẹ cho Overlay OSD thuần túy (100% xuyên chuột, không chiếm tiêu điểm),
+/// neo vị trí đa màn hình, đọc RAM/tiến trình foreground và khởi chạy cùng Windows.
+/// </summary>
 public static class Win32Helper
 {
+    public const int WM_NCHITTEST = 0x0084;
+    public const int WM_MOUSEACTIVATE = 0x0021;
+    public static readonly IntPtr HTTRANSPARENT = new(-1);
+    public static readonly IntPtr MA_NOACTIVATE = new(3);
+
     private const int GWL_EXSTYLE = -20;
     private const int WS_EX_TRANSPARENT = 0x00000020;
     private const int WS_EX_TOOLWINDOW = 0x00000080;
     private const int WS_EX_LAYERED = 0x00080000;
-    private const uint LWA_ALPHA = 0x00000002;
-
-    private const int DWMWA_WINDOW_CORNER_PREFERENCE = 33;
-    private const int DWMWA_BORDER_COLOR = 34;
-    private const int DWMWA_SYSTEMBACKDROP_TYPE = 38;
-    private const uint DWMWA_COLOR_NONE = 0xFFFFFFFE;
-    private const int WCA_ACCENT_POLICY = 19;
-
-    private enum DWM_WINDOW_CORNER_PREFERENCE
-    {
-        DWMWCP_DEFAULT = 0,
-        DWMWCP_DONOTROUND = 1,
-        DWMWCP_ROUND = 2,
-        DWMWCP_ROUNDSMALL = 3
-    }
-
-    private enum AccentState
-    {
-        ACCENT_DISABLED = 0,
-        ACCENT_ENABLE_GRADIENT = 1,
-        ACCENT_ENABLE_TRANSPARENTGRADIENT = 2,
-        ACCENT_ENABLE_BLURBEHIND = 3,
-        ACCENT_ENABLE_ACRYLICBLURBEHIND = 4,
-        ACCENT_INVALID_STATE = 5
-    }
-
-    [StructLayout(LayoutKind.Sequential)]
-    private struct MARGINS
-    {
-        public int cxLeftWidth;
-        public int cxRightWidth;
-        public int cyTopHeight;
-        public int cyBottomHeight;
-    }
-
-    [StructLayout(LayoutKind.Sequential)]
-    private struct AccentPolicy
-    {
-        public AccentState AccentState;
-        public int AccentFlags;
-        public uint GradientColor;
-        public int AnimationId;
-    }
-
-    [StructLayout(LayoutKind.Sequential)]
-    private struct WindowCompositionAttributeData
-    {
-        public int Attribute;
-        public IntPtr Data;
-        public int SizeOfData;
-    }
+    private const int WS_EX_NOACTIVATE = 0x08000000;
 
     [DllImport("user32.dll", SetLastError = true)]
     private static extern int GetWindowLong(IntPtr hWnd, int nIndex);
 
     [DllImport("user32.dll", SetLastError = true)]
     private static extern int SetWindowLong(IntPtr hWnd, int nIndex, int dwNewLong);
-
-    [DllImport("user32.dll", SetLastError = true)]
-    private static extern bool SetLayeredWindowAttributes(IntPtr hwnd, uint crKey, byte bAlpha, uint dwFlags);
-
-    [DllImport("user32.dll")]
-    private static extern int SetWindowCompositionAttribute(IntPtr hwnd, ref WindowCompositionAttributeData data);
-
-    [DllImport("dwmapi.dll")]
-    private static extern int DwmExtendFrameIntoClientArea(IntPtr hWnd, ref MARGINS pMarInset);
-
-    [DllImport("dwmapi.dll")]
-    private static extern int DwmSetWindowAttribute(IntPtr hwnd, int attr, ref int attrValue, int attrSize);
-
-    [DllImport("dwmapi.dll")]
-    private static extern int DwmSetWindowAttribute(IntPtr hwnd, int attr, ref uint attrValue, int attrSize);
 
     [DllImport("user32.dll")]
     private static extern IntPtr GetForegroundWindow();
@@ -112,151 +60,136 @@ public static class Win32Helper
     [return: MarshalAs(UnmanagedType.Bool)]
     private static extern bool GlobalMemoryStatusEx(ref MEMORYSTATUSEX lpBuffer);
 
-    public static void InitializeWidgetDwmSurface(Window window)
-    {
-        var handle = new WindowInteropHelper(window).Handle;
-        if (handle == IntPtr.Zero)
-            return;
-
-        try
-        {
-            // BẮT BUỘC: đặt nền DirectX backbuffer của HwndTarget về Transparent (#00000000),
-            // nếu không WPF sẽ tô nền đen đặc phía dưới khiến 0% opacity không thể trong suốt!
-            if (HwndSource.FromHwnd(handle)?.CompositionTarget != null)
-            {
-                HwndSource.FromHwnd(handle)!.CompositionTarget!.BackgroundColor = System.Windows.Media.Colors.Transparent;
-            }
-
-            var margins = new MARGINS
-            {
-                cxLeftWidth = -1,
-                cxRightWidth = -1,
-                cyTopHeight = -1,
-                cyBottomHeight = -1
-            };
-            DwmExtendFrameIntoClientArea(handle, ref margins);
-
-            uint noBorder = DWMWA_COLOR_NONE;
-            DwmSetWindowAttribute(handle, DWMWA_BORDER_COLOR, ref noBorder, sizeof(uint));
-        }
-        catch { }
-    }
-
     /// <summary>
-    /// Áp dụng 1 trong 3 chế độ hiệu ứng nền Windows 11 tức thì (Tắt làm mờ / Kính mềm / Kính mờ),
-    /// đồng bộ với thanh trượt Độ đậm nền (0% -> 100%) và bo góc DWM chuẩn Windows 11.
+    /// Áp dụng cố định các cờ Win32 cho Overlay OSD chuyên dụng (xuyên chuột 100%, không chiếm tiêu điểm game).
     /// </summary>
-    public static void ApplyWidgetBlurMode(
-        Window window,
-        WidgetBlurMode mode,
-        double cornerRadius,
-        double backgroundOpacityPercent,
-        bool isLightBackground)
-    {
-        var handle = new WindowInteropHelper(window).Handle;
-        if (handle == IntPtr.Zero)
-            return;
-
-        try
-        {
-            InitializeWidgetDwmSurface(window);
-
-            // Đảm bảo tắt SystemBackdrop mặc định của Win11 để không xung đột với SetWindowCompositionAttribute
-            int noneBackdrop = 1; // DWMSBT_NONE
-            DwmSetWindowAttribute(handle, DWMWA_SYSTEMBACKDROP_TYPE, ref noneBackdrop, sizeof(int));
-
-            // 1. Thiết lập bo góc chuẩn Windows 11 ôm khít lớp làm mờ
-            int cornerPref;
-            if (mode == WidgetBlurMode.Off)
-            {
-                cornerPref = (int)DWM_WINDOW_CORNER_PREFERENCE.DWMWCP_DONOTROUND;
-            }
-            else if (cornerRadius <= 0.5)
-            {
-                cornerPref = (int)DWM_WINDOW_CORNER_PREFERENCE.DWMWCP_DONOTROUND;
-            }
-            else if (cornerRadius <= 6.0)
-            {
-                cornerPref = (int)DWM_WINDOW_CORNER_PREFERENCE.DWMWCP_ROUNDSMALL;
-            }
-            else
-            {
-                cornerPref = (int)DWM_WINDOW_CORNER_PREFERENCE.DWMWCP_ROUND;
-            }
-            DwmSetWindowAttribute(handle, DWMWA_WINDOW_CORNER_PREFERENCE, ref cornerPref, sizeof(int));
-
-            // 2. Thiết lập chính sách làm mờ DWM
-            double opRatio = Math.Clamp(backgroundOpacityPercent / 100.0, 0.0, 1.0);
-            var accent = new AccentPolicy();
-
-            switch (mode)
-            {
-                case WidgetBlurMode.SoftGlass:
-                    // Kính mềm (Liquid Glass / Soft Glass): BlurBehind nhẹ giữ đường nét phía sau mềm mại, trong trẻo
-                    accent.AccentState = AccentState.ACCENT_ENABLE_BLURBEHIND;
-                    accent.AccentFlags = 0;
-                    accent.GradientColor = 0;
-                    break;
-
-                case WidgetBlurMode.FrostedGlass:
-                    // Kính mờ (Frosted Glass / Acrylic): tán nhòe Gaussian sâu thành mảng màu chuyển sắc mịn
-                    // Alpha tối thiểu = 1 (0x01) để Win11 kích hoạt Acrylic mà vẫn trong sạch khi kéo thanh trượt về 0%
-                    byte acrylicAlpha = (byte)Math.Clamp(Math.Round(1 + opRatio * 115.0), 1, 140);
-                    uint rgbBgr = isLightBackground ? 0x00FAF7F5u : 0x001E1916u;
-                    accent.AccentState = AccentState.ACCENT_ENABLE_ACRYLICBLURBEHIND;
-                    accent.AccentFlags = 2;
-                    accent.GradientColor = ((uint)acrylicAlpha << 24) | rgbBgr;
-                    break;
-
-                default:
-                    // Tắt làm mờ hoàn toàn: nền 0% sẽ trong suốt 100% tuyệt đối
-                    accent.AccentState = AccentState.ACCENT_DISABLED;
-                    accent.AccentFlags = 0;
-                    accent.GradientColor = 0;
-                    break;
-            }
-
-            int structSize = Marshal.SizeOf(accent);
-            IntPtr ptr = Marshal.AllocHGlobal(structSize);
-            try
-            {
-                Marshal.StructureToPtr(accent, ptr, false);
-                var data = new WindowCompositionAttributeData
-                {
-                    Attribute = WCA_ACCENT_POLICY,
-                    SizeOfData = structSize,
-                    Data = ptr
-                };
-                SetWindowCompositionAttribute(handle, ref data);
-            }
-            finally
-            {
-                Marshal.FreeHGlobal(ptr);
-            }
-        }
-        catch { }
-    }
-
-    public static void ApplyWidgetWindowStyles(Window window, bool clickThrough)
+    public static void ApplyPureOsdWindowStyles(Window window)
     {
         var handle = new WindowInteropHelper(window).Handle;
         if (handle == IntPtr.Zero)
             return;
 
         int exStyle = GetWindowLong(handle, GWL_EXSTYLE);
-        exStyle |= WS_EX_TOOLWINDOW;
+        exStyle |= WS_EX_LAYERED | WS_EX_TRANSPARENT | WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW;
+        SetWindowLong(handle, GWL_EXSTYLE, exStyle);
+    }
 
-        if (clickThrough)
+    public static List<MonitorOption> EnumerateMonitors()
+    {
+        var result = new List<MonitorOption>();
+        try
         {
-            exStyle |= WS_EX_LAYERED | WS_EX_TRANSPARENT;
-            SetWindowLong(handle, GWL_EXSTYLE, exStyle);
-            SetLayeredWindowAttributes(handle, 0, 255, LWA_ALPHA);
+            var screens = Forms.Screen.AllScreens;
+            for (int i = 0; i < screens.Length; i++)
+            {
+                var s = screens[i];
+                result.Add(new MonitorOption
+                {
+                    DeviceName = s.DeviceName,
+                    Index = i,
+                    WidthPx = s.Bounds.Width,
+                    HeightPx = s.Bounds.Height,
+                    IsPrimary = s.Primary
+                });
+            }
         }
-        else
+        catch { }
+
+        if (result.Count == 0)
         {
-            exStyle &= ~(WS_EX_TRANSPARENT | WS_EX_LAYERED);
-            SetWindowLong(handle, GWL_EXSTYLE, exStyle);
+            result.Add(new MonitorOption
+            {
+                DeviceName = string.Empty,
+                Index = 0,
+                WidthPx = (int)SystemParameters.PrimaryScreenWidth,
+                HeightPx = (int)SystemParameters.PrimaryScreenHeight,
+                IsPrimary = true
+            });
         }
+        return result;
+    }
+
+    /// <summary>
+    /// Tính toán vị trí (Left, Top theo DIP của WPF) cho cửa sổ Overlay theo 9 điểm neo,
+    /// căn lề X/Y (px) và màn hình đã chọn.
+    /// </summary>
+    public static void PositionOverlayWindow(
+        Window window,
+        string? monitorDeviceName,
+        OverlayAnchor anchor,
+        double offsetX,
+        double offsetY)
+    {
+        try
+        {
+            var screens = Forms.Screen.AllScreens;
+            Forms.Screen target = screens.FirstOrDefault(s =>
+                                      !string.IsNullOrWhiteSpace(monitorDeviceName) &&
+                                      s.DeviceName.Equals(monitorDeviceName, StringComparison.OrdinalIgnoreCase))
+                                  ?? Forms.Screen.PrimaryScreen
+                                  ?? screens.FirstOrDefault()!;
+
+            if (target == null)
+                return;
+
+            double scaleX = 1.0;
+            double scaleY = 1.0;
+            var source = PresentationSource.FromVisual(window);
+            if (source?.CompositionTarget != null)
+            {
+                var m = source.CompositionTarget.TransformToDevice;
+                if (m.M11 > 0.1) scaleX = m.M11;
+                if (m.M22 > 0.1) scaleY = m.M22;
+            }
+            else
+            {
+                var dpi = VisualTreeHelper.GetDpi(window);
+                if (dpi.DpiScaleX > 0.1) scaleX = dpi.DpiScaleX;
+                if (dpi.DpiScaleY > 0.1) scaleY = dpi.DpiScaleY;
+            }
+
+            double monLeft = target.Bounds.Left / scaleX;
+            double monTop = target.Bounds.Top / scaleY;
+            double monWidth = target.Bounds.Width / scaleX;
+            double monHeight = target.Bounds.Height / scaleY;
+
+            double winW = window.ActualWidth > 0 ? window.ActualWidth : window.Width;
+            double winH = window.ActualHeight > 0 ? window.ActualHeight : window.Height;
+            if (double.IsNaN(winW)) winW = 0;
+            if (double.IsNaN(winH)) winH = 0;
+
+            double ox = Math.Max(0, offsetX);
+            double oy = Math.Max(0, offsetY);
+
+            double left = anchor switch
+            {
+                OverlayAnchor.TopLeft or OverlayAnchor.MiddleLeft or OverlayAnchor.BottomLeft =>
+                    monLeft + ox,
+                OverlayAnchor.TopCenter or OverlayAnchor.MiddleCenter or OverlayAnchor.BottomCenter =>
+                    monLeft + (monWidth - winW) / 2.0 + ox - 16,
+                _ => monLeft + monWidth - winW - ox
+            };
+
+            // Với điểm neo giữa theo trục ngang/dọc, dùng offset làm dịch chuyển tương đối quanh tâm nếu > 0?
+            // Để trực quan: điểm neo Giữa căn chính giữa + dịch nhẹ khi cần, nhưng giữ hành vi nhất quán:
+            if (anchor is OverlayAnchor.TopCenter or OverlayAnchor.MiddleCenter or OverlayAnchor.BottomCenter)
+                left = monLeft + (monWidth - winW) / 2.0;
+
+            double top = anchor switch
+            {
+                OverlayAnchor.TopLeft or OverlayAnchor.TopCenter or OverlayAnchor.TopRight =>
+                    monTop + oy,
+                OverlayAnchor.MiddleLeft or OverlayAnchor.MiddleCenter or OverlayAnchor.MiddleRight =>
+                    monTop + (monHeight - winH) / 2.0,
+                _ => monTop + monHeight - winH - oy
+            };
+
+            if (Math.Abs(window.Left - left) > 0.5)
+                window.Left = Math.Round(left);
+            if (Math.Abs(window.Top - top) > 0.5)
+                window.Top = Math.Round(top);
+        }
+        catch { }
     }
 
     public static bool TryGetForegroundProcess(out int pid, out string processName)
@@ -427,9 +360,9 @@ public sealed class GlobalHotkeyManager : IDisposable
     private const uint MOD_CONTROL = 0x0002;
     private const uint MOD_SHIFT = 0x0004;
     private const uint MOD_NOREPEAT = 0x4000;
-    private const uint VK_L = 0x4C;
+    private const uint VK_O = 0x4F;
     private const uint VK_R = 0x52;
-    private const int HOTKEY_LOCK_ID = 0x5748;
+    private const int HOTKEY_TOGGLE_OVERLAY_ID = 0x5748;
     private const int HOTKEY_RESET_FPS_ID = 0x5749;
 
     [DllImport("user32.dll", SetLastError = true)]
@@ -440,16 +373,16 @@ public sealed class GlobalHotkeyManager : IDisposable
 
     private HwndSource? _source;
     private IntPtr _handle;
-    private bool _lockRegistered;
+    private bool _toggleOverlayRegistered;
     private bool _resetFpsRegistered;
 
-    public bool IsLockHotkeyRegistered => _lockRegistered;
+    public bool IsToggleOverlayHotkeyRegistered => _toggleOverlayRegistered;
     public bool IsResetFpsHotkeyRegistered => _resetFpsRegistered;
 
-    public event Action? ToggleClickThroughPressed;
+    public event Action? ToggleOverlayPressed;
     public event Action? ResetFpsPressed;
 
-    public bool Register(Window hostWindow)
+    public bool Register(Window hostWindow, bool enableToggleOverlayHotkey)
     {
         Unregister();
 
@@ -458,9 +391,33 @@ public sealed class GlobalHotkeyManager : IDisposable
         _source = HwndSource.FromHwnd(_handle);
         _source?.AddHook(WndProc);
 
-        _lockRegistered = RegisterHotKey(_handle, HOTKEY_LOCK_ID, MOD_CONTROL | MOD_SHIFT | MOD_NOREPEAT, VK_L);
+        if (enableToggleOverlayHotkey)
+            _toggleOverlayRegistered = RegisterHotKey(_handle, HOTKEY_TOGGLE_OVERLAY_ID, MOD_CONTROL | MOD_SHIFT | MOD_NOREPEAT, VK_O);
+
         _resetFpsRegistered = RegisterHotKey(_handle, HOTKEY_RESET_FPS_ID, MOD_CONTROL | MOD_SHIFT | MOD_NOREPEAT, VK_R);
-        return _lockRegistered;
+        return !enableToggleOverlayHotkey || _toggleOverlayRegistered;
+    }
+
+    public bool SetToggleOverlayHotkeyEnabled(bool enable)
+    {
+        if (_handle == IntPtr.Zero)
+            return false;
+
+        if (enable)
+        {
+            if (!_toggleOverlayRegistered)
+                _toggleOverlayRegistered = RegisterHotKey(_handle, HOTKEY_TOGGLE_OVERLAY_ID, MOD_CONTROL | MOD_SHIFT | MOD_NOREPEAT, VK_O);
+            return _toggleOverlayRegistered;
+        }
+        else
+        {
+            if (_toggleOverlayRegistered)
+            {
+                UnregisterHotKey(_handle, HOTKEY_TOGGLE_OVERLAY_ID);
+                _toggleOverlayRegistered = false;
+            }
+            return true;
+        }
     }
 
     private IntPtr WndProc(IntPtr hwnd, int msg, IntPtr wParam, IntPtr lParam, ref bool handled)
@@ -468,9 +425,9 @@ public sealed class GlobalHotkeyManager : IDisposable
         if (msg == WM_HOTKEY)
         {
             int id = wParam.ToInt32();
-            if (id == HOTKEY_LOCK_ID)
+            if (id == HOTKEY_TOGGLE_OVERLAY_ID)
             {
-                ToggleClickThroughPressed?.Invoke();
+                ToggleOverlayPressed?.Invoke();
                 handled = true;
             }
             else if (id == HOTKEY_RESET_FPS_ID)
@@ -486,10 +443,10 @@ public sealed class GlobalHotkeyManager : IDisposable
     {
         if (_handle != IntPtr.Zero)
         {
-            if (_lockRegistered)
+            if (_toggleOverlayRegistered)
             {
-                UnregisterHotKey(_handle, HOTKEY_LOCK_ID);
-                _lockRegistered = false;
+                UnregisterHotKey(_handle, HOTKEY_TOGGLE_OVERLAY_ID);
+                _toggleOverlayRegistered = false;
             }
             if (_resetFpsRegistered)
             {

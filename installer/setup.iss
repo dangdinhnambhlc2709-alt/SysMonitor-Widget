@@ -4,7 +4,7 @@
 ; =============================================================================
 
 #ifndef MyAppVersion
-  #define MyAppVersion "1.0.1"
+  #define MyAppVersion "1.1.0"
 #endif
 
 #define MyAppName "SysMonitor Widget"
@@ -28,7 +28,7 @@ DisableProgramGroupPage=yes
 PrivilegesRequired=admin
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
-OutputDir=output
+OutputDir=..\Release_Installer
 OutputBaseFilename=SysMonitor-Widget-Setup-{#MyAppVersion}
 SetupIconFile=..\Assets\app.ico
 UninstallDisplayIcon={app}\{#MyAppExeName}

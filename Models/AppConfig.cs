@@ -8,12 +8,6 @@ public enum MetricHeaderStyle
     Icon = 1
 }
 
-public enum GpuTechMode
-{
-    AutoAllGpus = 0,
-    SinglePrimaryGpu = 1
-}
-
 public enum GameTechOverrideState
 {
     Auto = 0,
@@ -21,67 +15,139 @@ public enum GameTechOverrideState
     ForceOff = 2
 }
 
-public enum BackgroundImageStretchMode
+public enum OverlayAnchor
 {
-    UniformToFill = 0,
-    Uniform = 1,
-    Fill = 2
+    TopLeft = 0,
+    TopCenter = 1,
+    TopRight = 2,
+    MiddleLeft = 3,
+    MiddleCenter = 4,
+    MiddleRight = 5,
+    BottomLeft = 6,
+    BottomCenter = 7,
+    BottomRight = 8
 }
 
-public enum WidgetBlurMode
+public enum CellContentAlignment
 {
-    Off = 0,
-    SoftGlass = 1,
-    FrostedGlass = 2
+    InlineWithGap = 0,
+    SpaceBetween = 1,
+    StackedVertical = 2
 }
 
-public sealed class MetricStyleConfig
+public enum OverlayLayerKind
 {
+    Metric = 0,
+    StaticText = 1,
+    BackdropBox = 2
+}
+
+public enum LayerDisplayMode
+{
+    LabelAndValue = 0,
+    ValueOnly = 1,
+    LabelOnly = 2
+}
+
+public sealed class CellStyleConfig
+{
+    public bool UseGlobalStyle { get; set; } = true;
     public string? CustomLabel { get; set; }
-    public bool IsHighlightedBlock { get; set; }
-    public double HighlightIntensity { get; set; } = 60;
-    public string? CustomLabelColorHex { get; set; }
-    public string? CustomValueColorHex { get; set; }
+    public LayerDisplayMode DisplayMode { get; set; } = LayerDisplayMode.LabelAndValue;
     public MetricHeaderStyle HeaderStyle { get; set; } = MetricHeaderStyle.Text;
     public string? CustomSymbolName { get; set; }
+    public string? LabelColorHex { get; set; }
+    public string? ValueColorHex { get; set; }
+    public double? FontSizeOverride { get; set; }
+    public double? LabelValueGapOverride { get; set; }
+    public CellContentAlignment? ContentAlignmentOverride { get; set; }
+    public double? PaddingHOverride { get; set; }
+    public double? PaddingVOverride { get; set; }
+
+    // Kiểu dáng ô phẳng riêng (áp dụng khi UseGlobalStyle = false)
+    public string? BackgroundColorHex { get; set; }
+    public double? BackgroundOpacity { get; set; }
+    public bool? BorderEnabled { get; set; }
+    public string? BorderColorHex { get; set; }
+    public double? BorderOpacity { get; set; }
+    public double? BorderThickness { get; set; }
+    public double? CornerRadius { get; set; }
+}
+
+public sealed class OverlayLayerConfig
+{
+    public string LayerId { get; set; } = string.Empty;
+    public OverlayLayerKind Kind { get; set; } = OverlayLayerKind.Metric;
+    public string? MetricId { get; set; }
+    public double X { get; set; }
+    public double Y { get; set; }
+    public double Width { get; set; }   // 0 = tự co theo nội dung
+    public double Height { get; set; }  // 0 = tự co theo nội dung
+    public int ZIndex { get; set; }
+    public CellStyleConfig? Style { get; set; }
+}
+
+/// <summary>
+/// Chỉ giữ lại tối thiểu để chuyển đổi an toàn cấu hình cũ (v1.0.x / v2 grid -> v3 Canvas).
+/// </summary>
+public sealed class LegacyGridPlacementConfig
+{
+    public string MetricId { get; set; } = string.Empty;
+    public int Row { get; set; }
+    public int Column { get; set; }
+    public int ColumnSpan { get; set; } = 1;
+    public CellStyleConfig? Style { get; set; }
 }
 
 public class AppConfig
 {
+    public int ConfigVersion { get; set; } = 3;
     public string LanguageCode { get; set; } = "vi";
 
-    public double WidgetLeft { get; set; } = -1;
-    public double WidgetTop { get; set; } = -1;
-    public double WidgetWidth { get; set; } = 410;
-    public double WidgetHeight { get; set; } = 190;
+    // Vị trí Overlay OSD thuần túy (9 điểm neo + căn lề X/Y + đa màn hình)
+    public OverlayAnchor OverlayAnchor { get; set; } = OverlayAnchor.TopLeft;
+    public double OverlayOffsetX { get; set; } = 16;
+    public double OverlayOffsetY { get; set; } = 16;
+    public string? MonitorDeviceName { get; set; }
+    public bool IsWidgetTopmost { get; set; } = true;
+    public bool IsWidgetVisible { get; set; } = true;
+    public bool EnableToggleOverlayHotkey { get; set; } = true;
 
-    public List<string> SelectedMetricIds { get; set; } = new();
-    public Dictionary<string, MetricStyleConfig> MetricStyles { get; set; } = new();
+    // Thiết lập Canvas kiểu RTSS Overlay Editor
+    public bool ShowEditorGrid { get; set; } = true;
+    public bool SnapToGrid { get; set; } = true;
+    public int GridSnapSize { get; set; } = 8;
+    public double CellPaddingH { get; set; } = 8;
+    public double CellPaddingV { get; set; } = 4;
+    public double GlobalLabelValueGap { get; set; } = 8;
+    public CellContentAlignment GlobalContentAlignment { get; set; } = CellContentAlignment.InlineWithGap;
+    public List<OverlayLayerConfig> OverlayLayers { get; set; } = new();
 
-    public double BackgroundOpacity { get; set; } = 78;
-    public string BackgroundColorHex { get; set; } = "#141419";
-    public string TextColorHex { get; set; } = "#FFFFFF";
-
-    // Phông chữ, cỡ chữ (10-36) và độ đậm nhạt (7 mức)
+    // Phông chữ & Kiểu dáng ô phẳng mặc định chung
     public string FontFamilyName { get; set; } = "Segoe UI";
     public double FontSize { get; set; } = 13;
     public string FontWeightName { get; set; } = "SemiBold";
+    public string TextColorHex { get; set; } = "#FFFFFF";
+    public string LabelColorHex { get; set; } = "#60CDFF";
 
-    // Tự động co giãn nội dung theo kích thước cửa sổ Widget
-    public bool AutoScaleContent { get; set; } = true;
+    public string DefaultCellBgColorHex { get; set; } = "#0A0C10";
+    public double DefaultCellBgOpacity { get; set; } = 78;
+    public bool DefaultCellBorderEnabled { get; set; } = true;
+    public string DefaultCellBorderColorHex { get; set; } = "#FFFFFF";
+    public double DefaultCellBorderOpacity { get; set; } = 22;
+    public double DefaultCellBorderThickness { get; set; } = 1.0;
+    public double DefaultCellCornerRadius { get; set; } = 0;
 
-    // 3 chế độ hiệu ứng nền Windows 11 (Tắt làm mờ / Kính mềm / Kính mờ)
-    public WidgetBlurMode BlurMode { get; set; } = WidgetBlurMode.Off;
-
-    public double CornerRadius { get; set; } = 14;
-    public bool IsClickThrough { get; set; } = false;
-    public bool IsWidgetTopmost { get; set; } = true;
-    public bool IsWidgetVisible { get; set; } = true;
-
-    // Tùy chỉnh ảnh nền PNG cho Widget
-    public string? BackgroundImagePath { get; set; }
-    public double BackgroundImageOpacity { get; set; } = 85;
-    public BackgroundImageStretchMode BackgroundImageStretch { get; set; } = BackgroundImageStretchMode.UniformToFill;
+    // Nền khung tổng bọc ngoài bảng Overlay
+    public bool ShowOuterFrame { get; set; } = false;
+    public string OuterFrameBgColorHex { get; set; } = "#080A0E";
+    public double OuterFrameBgOpacity { get; set; } = 80;
+    public bool OuterFrameBorderEnabled { get; set; } = true;
+    public string OuterFrameBorderColorHex { get; set; } = "#FFFFFF";
+    public double OuterFrameBorderOpacity { get; set; } = 25;
+    public double OuterFrameBorderThickness { get; set; } = 1.0;
+    public double OuterFrameCornerRadius { get; set; } = 6;
+    public double OuterFramePadding { get; set; } = 6;
 
     // FPS & Đồ thị
     public bool AutoHideFpsWhenIdle { get; set; } = false;
@@ -95,14 +161,14 @@ public class AppConfig
     public bool MinimizeToTrayOnClose { get; set; } = true;
     public bool AutoCheckUpdatesOnStartup { get; set; } = true;
 
-    // Công nghệ GPU & Huy hiệu
-    public GpuTechMode GpuTechMode { get; set; } = GpuTechMode.AutoAllGpus;
-    public string? SelectedPrimaryGpuId { get; set; }
+    // Công nghệ GPU & Huy hiệu (mở khóa tất cả hãng GPU có mặt trên máy)
     public bool HideUnsupportedGpuTechs { get; set; } = false;
     public List<string> EnabledGpuTechIds { get; set; } = new();
-
     public bool UseCustomGpuBadgeColor { get; set; } = false;
     public string CustomGpuBadgeColorHex { get; set; } = "#60CDFF";
-
     public Dictionary<string, Dictionary<string, GameTechOverrideState>> GameTechProfiles { get; set; } = new();
+
+    // Trường tương thích ngược chỉ dùng lúc chuyển đổi tự động cấu hình cũ
+    public List<string>? SelectedMetricIds { get; set; }
+    public List<LegacyGridPlacementConfig>? GridPlacements { get; set; }
 }

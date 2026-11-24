@@ -19,6 +19,7 @@ public sealed partial class LocalizationService : INotifyPropertyChanged
     {
         RegisterWestLanguages();
         RegisterEastLanguages();
+        RegisterV110Overrides();
     }
 
     public IReadOnlyList<LanguageOption> SupportedLanguages { get; } = new List<LanguageOption>

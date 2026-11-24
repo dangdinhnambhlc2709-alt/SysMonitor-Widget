@@ -33,7 +33,9 @@ public sealed class FpsSnapshot
     public bool IsGameActive { get; init; }
     public string ActiveGameName { get; init; } = string.Empty;
     public double? BaseFps { get; init; }
+    public double? RawDisplayedFps { get; init; }
     public double? FrameGenFps { get; init; }
+    public bool IsLosslessScalingActive { get; init; }
     public string? FrameGenSource { get; init; }
     public double? AvgFps { get; init; }
     public double? OnePercentLowFps { get; init; }
@@ -605,25 +607,27 @@ public sealed class PresentMonService : IDisposable
             // Tính FrameGen FPS (phát hiện cả Lossless Scaling lẫn in-game / driver FrameGen)
             double? frameGenFps = null;
             string? fgSource = null;
+            bool isLosslessActive = lsDisplayFps.HasValue && lsDisplayFps.Value >= 15;
+            double? rawDisplayedFps = ComputeRecentDisplayedFps(targetBuffer, nowSec);
 
             if (lsDisplayFps.HasValue && lsDisplayFps.Value > baseFps * 1.15 && lsDisplayFps.Value >= 20)
             {
                 frameGenFps = lsDisplayFps.Value;
                 fgSource = "Lossless Scaling";
+                rawDisplayedFps = lsDisplayFps.Value;
             }
             else
             {
                 bool hasGeneratedFlag = recentSamples.Any(s => s.IsGenerated);
-                double? displayedFps = ComputeRecentDisplayedFps(targetBuffer, nowSec);
 
-                if (hasGeneratedFlag && displayedFps.HasValue && displayedFps.Value > baseFps * 1.08)
+                if (hasGeneratedFlag && rawDisplayedFps.HasValue && rawDisplayedFps.Value > baseFps * 1.08)
                 {
-                    frameGenFps = displayedFps.Value;
+                    frameGenFps = rawDisplayedFps.Value;
                     fgSource = "FrameGen";
                 }
-                else if (displayedFps.HasValue && displayedFps.Value > baseFps * 1.18 && displayedFps.Value >= 30)
+                else if (rawDisplayedFps.HasValue && rawDisplayedFps.Value > baseFps * 1.18 && rawDisplayedFps.Value >= 30)
                 {
-                    frameGenFps = displayedFps.Value;
+                    frameGenFps = rawDisplayedFps.Value;
                     fgSource = "FrameGen";
                 }
             }
@@ -674,7 +678,9 @@ public sealed class PresentMonService : IDisposable
                 IsGameActive = true,
                 ActiveGameName = targetName,
                 BaseFps = baseFps,
+                RawDisplayedFps = rawDisplayedFps,
                 FrameGenFps = frameGenFps,
+                IsLosslessScalingActive = isLosslessActive,
                 FrameGenSource = fgSource,
                 AvgFps = avgFps,
                 OnePercentLowFps = onePctLow,
