@@ -31,7 +31,6 @@ A modern **floating hardware monitoring & gaming overlay widget for Windows 10/1
 * Includes quick manual overrides with automatic per-game (`.exe`) profile saving.
 
 ### 4. Modern Windows 11 UI Customization
-* **3 Background Effects:** No Blur (lightest for gaming), **Soft Glass** (translucent glass with glossy highlight borders), and **Frosted Glass** (Windows 11 Acrylic blur).
 * **Direct Drag-and-Drop on Widget:** Reorder metrics visually and resize freely from any edge or corner with automatic content scaling.
 * **Per-Item Personalization:** Rename any metric, set individual label/value colors, toggle headers between **Text** and **Icon**, customize font family and weight, and adjust the **Elevation (3D Depth)** slider.
 * **Click-Through Lock Mode:** Lock the overlay in place so mouse clicks pass right through while gaming or working.
@@ -78,7 +77,6 @@ A modern **floating hardware monitoring & gaming overlay widget for Windows 10/1
 * Hỗ trợ bảng ghi đè thủ công và tự động ghi nhớ thiết lập theo từng tệp game.
 
 ### 4. Tùy biến giao diện hiện đại chuẩn Windows 11
-* **3 chế độ hiệu ứng nền:** Tắt làm mờ (nhẹ nhất), **Kính mềm** (viền sáng bóng trong suốt) và **Kính mờ** (kính mờ đục Acrylic chuẩn Windows 11).
 * **Kéo thả trực tiếp trên Widget:** Sắp xếp thứ tự mục thông số trực quan, kéo góc để phóng to/thu nhỏ kèm tự động co giãn nội dung hài hòa.
 * **Cá nhân hóa từng mục:** Tự đổi tên hiển thị, đổi màu chữ/số riêng biệt, chuyển đầu mục giữa dạng **Chữ** và **Biểu tượng**, chỉnh phông chữ, độ đậm nhạt và thanh trượt **Mức độ nổi khối**.
 * **Khóa vị trí (Xuyên chuột):** Không lo bấm nhầm vào Widget khi đang chơi game hoặc làm việc.
