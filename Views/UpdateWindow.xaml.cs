@@ -27,16 +27,30 @@ public partial class UpdateWindow : FluentWindow
 
         InitializeComponent();
 
-        CurrentVersionBadge.Text = $"Hiện tại: v{_updateService.CurrentVersionString}";
-        NewVersionBadge.Text = $"Mới nhất: v{_release.VersionString}";
+        RefreshLocalizedBadges();
         ReleaseNotesTextBlock.Text = _release.ReleaseNotes;
+        LocalizationService.Instance.LanguageChanged += OnLanguageChanged;
 
         Closing += (_, _) =>
         {
+            LocalizationService.Instance.LanguageChanged -= OnLanguageChanged;
             _downloadCts?.Cancel();
             _downloadCts?.Dispose();
             _downloadCts = null;
         };
+    }
+
+    private void OnLanguageChanged()
+    {
+        Dispatcher.BeginInvoke(RefreshLocalizedBadges);
+    }
+
+    private void RefreshLocalizedBadges()
+    {
+        var loc = LocalizationService.Instance;
+        CurrentVersionBadge.Text = loc.Format("UpdateCurVer", _updateService.CurrentVersionString);
+        NewVersionBadge.Text = loc.Format("UpdateNewVer", _release.VersionString);
+        LaterButton.Content = _isDownloading ? loc["UpdateBtnCancel"] : loc["UpdateBtnLater"];
     }
 
     private void LaterButton_Click(object sender, RoutedEventArgs e)
@@ -53,13 +67,14 @@ public partial class UpdateWindow : FluentWindow
         if (_isDownloading)
             return;
 
+        var loc = LocalizationService.Instance;
         _isDownloading = true;
         InstallNowButton.IsEnabled = false;
-        LaterButton.Content = "Hủy tải";
+        LaterButton.Content = loc["UpdateBtnCancel"];
         DownloadProgressPanel.Visibility = Visibility.Visible;
         DownloadProgressBar.Value = 0;
         ProgressPercentText.Text = "0%";
-        ProgressDetailText.Text = $"Đang tải {_release.AssetName}...";
+        ProgressDetailText.Text = loc.Format("UpdatePreparing", _release.AssetName);
 
         _downloadCts = new CancellationTokenSource();
         var ct = _downloadCts.Token;
@@ -70,11 +85,13 @@ public partial class UpdateWindow : FluentWindow
             ProgressPercentText.Text = $"{p.Percent:F0}%";
             if (p.TotalBytes > 0)
             {
-                ProgressDetailText.Text = $"Đang tải... {FormatMb(p.BytesReceived)} / {FormatMb(p.TotalBytes)}";
+                ProgressDetailText.Text = LocalizationService.Instance.Format(
+                    "UpdateDownloadingProgress", FormatMb(p.BytesReceived), FormatMb(p.TotalBytes));
             }
             else
             {
-                ProgressDetailText.Text = $"Đang tải... {FormatMb(p.BytesReceived)}";
+                ProgressDetailText.Text = LocalizationService.Instance.Format(
+                    "UpdateDownloadingBytes", FormatMb(p.BytesReceived));
             }
         });
 
@@ -82,7 +99,7 @@ public partial class UpdateWindow : FluentWindow
         {
             string installerPath = await _updateService.DownloadInstallerAsync(_release, progress, ct);
 
-            ProgressDetailText.Text = "Tải xong! Đang khởi chạy bộ cài đặt cập nhật...";
+            ProgressDetailText.Text = LocalizationService.Instance["UpdateLaunching"];
             ProgressPercentText.Text = "100%";
             DownloadProgressBar.Value = 100;
 
@@ -97,11 +114,11 @@ public partial class UpdateWindow : FluentWindow
             {
                 _isDownloading = false;
                 InstallNowButton.IsEnabled = true;
-                LaterButton.Content = "Để sau";
-                StatusHintText.Text = "Không thể khởi chạy bộ cài đặt.";
+                LaterButton.Content = LocalizationService.Instance["UpdateBtnLater"];
+                StatusHintText.Text = LocalizationService.Instance["UpdateLaunchFailedShort"];
                 MessageBox.Show(
-                    $"Không thể khởi chạy tệp cài đặt cập nhật:\n{err}",
-                    "Cập nhật phần mềm",
+                    LocalizationService.Instance.Format("UpdateLaunchFailed", err ?? string.Empty),
+                    LocalizationService.Instance["UpdateWinTitle"],
                     MessageBoxButton.OK,
                     MessageBoxImage.Warning);
             }
@@ -110,18 +127,18 @@ public partial class UpdateWindow : FluentWindow
         {
             _isDownloading = false;
             InstallNowButton.IsEnabled = true;
-            LaterButton.Content = "Để sau";
-            ProgressDetailText.Text = "Đã hủy quá trình tải xuống.";
+            LaterButton.Content = LocalizationService.Instance["UpdateBtnLater"];
+            ProgressDetailText.Text = LocalizationService.Instance["UpdateDownloadCancelled"];
         }
         catch (Exception ex)
         {
             _isDownloading = false;
             InstallNowButton.IsEnabled = true;
-            LaterButton.Content = "Để sau";
-            ProgressDetailText.Text = "Tải xuống thất bại.";
+            LaterButton.Content = LocalizationService.Instance["UpdateBtnLater"];
+            ProgressDetailText.Text = LocalizationService.Instance["UpdateDownloadFailedShort"];
             MessageBox.Show(
-                $"Không thể tải bản cập nhật:\n{ex.Message}",
-                "Cập nhật phần mềm — Lỗi",
+                LocalizationService.Instance.Format("UpdateDownloadFailed", ex.Message),
+                LocalizationService.Instance["UpdateWinErrorTitle"],
                 MessageBoxButton.OK,
                 MessageBoxImage.Error);
         }

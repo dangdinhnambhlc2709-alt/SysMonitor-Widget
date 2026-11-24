@@ -547,7 +547,7 @@ public partial class WidgetWindow : Window
         if (e.Data.GetData(MetricDragDrop.DataFormat) is MetricDragPayload payload && !payload.FromActiveList)
         {
             _viewModel.AddMetricAt(payload.MetricId, _viewModel.ActiveMetrics.Count);
-            ShowStatusToast("Đã thêm thông số vào Widget");
+            ShowStatusToast(LocalizationService.Instance["ToastAddedMetric"]);
             e.Handled = true;
         }
     }

@@ -1,3 +1,5 @@
+using WinHardwareMonitor.Services;
+
 namespace WinHardwareMonitor.Models;
 
 public enum MetricCategory
@@ -12,14 +14,14 @@ public enum MetricCategory
 
 public static class MetricCategoryExtensions
 {
-    public static string ToVietnameseName(this MetricCategory category) => category switch
+    public static string ToLocalizedName(this MetricCategory category) => category switch
     {
-        MetricCategory.Cpu => "CPU",
-        MetricCategory.Gpu => "GPU",
-        MetricCategory.Ram => "RAM",
-        MetricCategory.Network => "Mạng",
-        MetricCategory.Storage => "Ổ cứng",
-        MetricCategory.Fps => "FPS & Game",
-        _ => "Khác"
+        MetricCategory.Cpu => LocalizationService.Instance["GrpCpu"],
+        MetricCategory.Gpu => LocalizationService.Instance["GrpGpuNone"],
+        MetricCategory.Ram => LocalizationService.Instance["GrpRam"],
+        MetricCategory.Network => LocalizationService.Instance["GrpNetwork"],
+        MetricCategory.Storage => LocalizationService.Instance["GrpStorageTotal"],
+        MetricCategory.Fps => LocalizationService.Instance["GrpFps"],
+        _ => LocalizationService.Instance["GpuVendorOther"]
     };
 }

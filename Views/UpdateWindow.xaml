@@ -2,7 +2,9 @@
                  xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
                  xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
                  xmlns:ui="http://schemas.lepo.co/wpfui/2022/xaml"
-                 Title="Cập nhật phần mềm"
+                 xmlns:services="clr-namespace:WinHardwareMonitor.Services"
+                 Title="{Binding [UpdateWinTitle], Source={x:Static services:LocalizationService.Instance}}"
+                 FlowDirection="{Binding FlowDirection, Source={x:Static services:LocalizationService.Instance}}"
                  Icon="pack://application:,,,/Assets/app.ico"
                  Width="520"
                  Height="450"
@@ -22,7 +24,7 @@
         </Grid.RowDefinitions>
 
         <ui:TitleBar Grid.Row="0"
-                     Title="Cập nhật phần mềm — SysMonitor Widget"
+                     Title="{Binding [UpdateWinTitleFull], Source={x:Static services:LocalizationService.Instance}}"
                      ShowMaximize="False"
                      ShowMinimize="False"
                      ShowClose="True">
@@ -41,7 +43,7 @@
 
             <!-- Tiêu đề & số phiên bản -->
             <StackPanel Grid.Row="0" Margin="0,0,0,12">
-                <TextBlock Text="Đã có phiên bản mới!"
+                <TextBlock Text="{Binding [UpdateWinHeader], Source={x:Static services:LocalizationService.Instance}}"
                            FontSize="18"
                            FontWeight="SemiBold"
                            Foreground="White" />
@@ -49,14 +51,12 @@
                 <WrapPanel Margin="0,8,0,0" VerticalAlignment="Center">
                     <Border Background="#18FFFFFF" CornerRadius="7" Padding="10,4" Margin="0,0,8,0">
                         <TextBlock x:Name="CurrentVersionBadge"
-                                   Text="Hiện tại: v1.0.0"
                                    FontSize="12"
                                    Foreground="#C8FFFFFF" />
                     </Border>
                     <TextBlock Text="→" FontSize="14" Foreground="#60CDFF" VerticalAlignment="Center" Margin="0,0,8,0" />
                     <Border Background="#284ADE80" BorderBrush="#884ADE80" BorderThickness="1" CornerRadius="7" Padding="10,4">
                         <TextBlock x:Name="NewVersionBadge"
-                                   Text="Mới nhất: v1.0.1"
                                    FontSize="12"
                                    FontWeight="SemiBold"
                                    Foreground="#86EFAC" />
@@ -66,7 +66,7 @@
 
             <!-- Nhãn danh sách thay đổi -->
             <TextBlock Grid.Row="1"
-                       Text="Danh sách thay đổi (từ GitHub Releases):"
+                       Text="{Binding [UpdateNotesLabel], Source={x:Static services:LocalizationService.Instance}}"
                        FontSize="12.5"
                        FontWeight="Medium"
                        Foreground="#D8FFFFFF"
@@ -102,7 +102,7 @@
                                Foreground="#60CDFF"
                                Typography.NumeralAlignment="Tabular" />
                     <TextBlock x:Name="ProgressDetailText"
-                               Text="Đang chuẩn bị tải bản cài đặt..."
+                               Text="{Binding [UpdatePreparingShort], Source={x:Static services:LocalizationService.Instance}}"
                                FontSize="12"
                                Foreground="#DCE0E8"
                                TextTrimming="CharacterEllipsis"
@@ -125,20 +125,20 @@
             <DockPanel>
                 <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
                     <ui:Button x:Name="LaterButton"
-                               Content="Để sau"
+                               Content="{Binding [UpdateBtnLater], Source={x:Static services:LocalizationService.Instance}}"
                                Appearance="Secondary"
                                Padding="16,7"
                                Margin="0,0,10,0"
                                Click="LaterButton_Click" />
                     <ui:Button x:Name="InstallNowButton"
-                               Content="Tải và cài ngay"
+                               Content="{Binding [UpdateBtnInstall], Source={x:Static services:LocalizationService.Instance}}"
                                Appearance="Primary"
                                Padding="18,7"
                                Click="InstallNowButton_Click" />
                 </StackPanel>
 
                 <TextBlock x:Name="StatusHintText"
-                           Text="Ứng dụng sẽ tự động cài đè và mở lại sau khi hoàn tất."
+                           Text="{Binding [UpdateFooterHint], Source={x:Static services:LocalizationService.Instance}}"
                            FontSize="11.5"
                            Foreground="#90FFFFFF"
                            VerticalAlignment="Center"

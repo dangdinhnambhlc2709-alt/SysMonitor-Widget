@@ -96,7 +96,7 @@ public sealed class UpdateService
                     Success = true,
                     HasUpdate = false,
                     NoReleasesPublished = true,
-                    StatusMessage = $"Chưa có bản phát hành nào trên GitHub (đang dùng v{CurrentVersionString})."
+                    StatusMessage = LocalizationService.Instance.Format("UpdateNoReleases", CurrentVersionString)
                 };
             }
 
@@ -106,7 +106,7 @@ public sealed class UpdateService
                 {
                     Success = false,
                     HasUpdate = false,
-                    StatusMessage = $"Không thể kiểm tra cập nhật (HTTP {(int)response.StatusCode})."
+                    StatusMessage = LocalizationService.Instance.Format("UpdateHttpErr", (int)response.StatusCode)
                 };
             }
 
@@ -124,7 +124,7 @@ public sealed class UpdateService
                 {
                     Success = false,
                     HasUpdate = false,
-                    StatusMessage = $"Không đọc được số phiên bản từ tag '{tagName}'."
+                    StatusMessage = LocalizationService.Instance.Format("UpdateParseErr", tagName)
                 };
             }
 
@@ -134,7 +134,7 @@ public sealed class UpdateService
                 {
                     Success = true,
                     HasUpdate = false,
-                    StatusMessage = $"Bạn đang dùng phiên bản mới nhất (v{CurrentVersionString})."
+                    StatusMessage = LocalizationService.Instance.Format("UpdateUpToDate", CurrentVersionString)
                 };
             }
 
@@ -183,7 +183,7 @@ public sealed class UpdateService
                 {
                     Success = true,
                     HasUpdate = false,
-                    StatusMessage = $"Có bản v{remoteVersionString} trên GitHub nhưng chưa đính kèm tệp cài đặt .exe."
+                    StatusMessage = LocalizationService.Instance.Format("UpdateNoExe", remoteVersionString)
                 };
             }
 
@@ -192,8 +192,12 @@ public sealed class UpdateService
                 Version = remoteVersion,
                 VersionString = remoteVersionString,
                 TagName = tagName,
-                ReleaseName = string.IsNullOrWhiteSpace(releaseName) ? $"Phiên bản {remoteVersionString}" : releaseName,
-                ReleaseNotes = string.IsNullOrWhiteSpace(body) ? "Cải thiện hiệu năng và sửa lỗi." : body.Trim(),
+                ReleaseName = string.IsNullOrWhiteSpace(releaseName)
+                    ? LocalizationService.Instance.Format("UpdateVersionFallback", remoteVersionString)
+                    : releaseName,
+                ReleaseNotes = string.IsNullOrWhiteSpace(body)
+                    ? LocalizationService.Instance["UpdateNoNotes"]
+                    : body.Trim(),
                 AssetName = bestAssetName ?? $"SysMonitor-Widget-Setup-{remoteVersionString}.exe",
                 DownloadUrl = bestUrl,
                 AssetSizeBytes = bestSize,
@@ -204,7 +208,7 @@ public sealed class UpdateService
             {
                 Success = true,
                 HasUpdate = true,
-                StatusMessage = $"Phát hiện phiên bản mới v{remoteVersionString}!",
+                StatusMessage = LocalizationService.Instance.Format("UpdateFound", remoteVersionString),
                 Release = info
             };
         }
@@ -214,7 +218,7 @@ public sealed class UpdateService
             {
                 Success = false,
                 HasUpdate = false,
-                StatusMessage = "Đã hủy kiểm tra cập nhật."
+                StatusMessage = LocalizationService.Instance["UpdateCancelled"]
             };
         }
         catch (HttpRequestException)
@@ -223,7 +227,7 @@ public sealed class UpdateService
             {
                 Success = false,
                 HasUpdate = false,
-                StatusMessage = "Không thể kết nối GitHub (kiểm tra kết nối mạng)."
+                StatusMessage = LocalizationService.Instance["UpdateNetErr"]
             };
         }
         catch (Exception ex)
@@ -232,7 +236,7 @@ public sealed class UpdateService
             {
                 Success = false,
                 HasUpdate = false,
-                StatusMessage = $"Lỗi kiểm tra cập nhật: {ex.Message}"
+                StatusMessage = LocalizationService.Instance.Format("UpdateGenericErr", ex.Message)
             };
         }
     }

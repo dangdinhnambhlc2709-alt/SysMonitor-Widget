@@ -157,6 +157,7 @@
 
                 <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
                     <ui:Button Content="{Binding [BtnResetFps], Source={x:Static services:LocalizationService.Instance}}"
+                               ToolTip="{Binding [TooltipResetFps], Source={x:Static services:LocalizationService.Instance}}"
                                Command="{Binding ResetFpsStatsCommand}"
                                Appearance="Secondary" Padding="10,6" Margin="0,0,8,0" />
                     <ui:Button Content="{Binding WidgetVisibilityButtonText}"
@@ -209,7 +210,7 @@
 
                             <Border Grid.Row="1" Background="#1260CDFF" BorderBrush="#2E60CDFF" BorderThickness="1" CornerRadius="8" Padding="10,7" Margin="0,0,0,12">
                                 <DockPanel>
-                                    <ui:Button DockPanel.Dock="Right" Content="Tải PresentMon" Command="{Binding DownloadPresentMonCommand}" Appearance="Secondary" Padding="9,4" FontSize="11.5" Margin="8,0,0,0">
+                                    <ui:Button DockPanel.Dock="Right" Content="{Binding [BtnDownloadPresentMon], Source={x:Static services:LocalizationService.Instance}}" Command="{Binding DownloadPresentMonCommand}" Appearance="Secondary" Padding="9,4" FontSize="11.5" Margin="8,0,0,0">
                                         <ui:Button.Style>
                                             <Style TargetType="ui:Button" BasedOn="{StaticResource {x:Type ui:Button}}">
                                                 <Setter Property="Visibility" Value="Collapsed" />
@@ -269,13 +270,13 @@
                                                                                 CommandParameter="{Binding}" Padding="8,3" MinWidth="60" FontSize="11.5" Cursor="Hand">
                                                                             <Button.Style>
                                                                                 <Style TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
-                                                                                    <Setter Property="Content" Value="+ Thêm" />
+                                                                                    <Setter Property="Content" Value="{Binding [BtnAddMetric], Source={x:Static services:LocalizationService.Instance}}" />
                                                                                     <Setter Property="Background" Value="#20FFFFFF" />
                                                                                     <Setter Property="Foreground" Value="White" />
                                                                                     <Setter Property="BorderThickness" Value="0" />
                                                                                     <Style.Triggers>
                                                                                         <DataTrigger Binding="{Binding IsSelected}" Value="True">
-                                                                                            <Setter Property="Content" Value="✓ Đã bật" />
+                                                                                            <Setter Property="Content" Value="{Binding [BtnAddedMetric], Source={x:Static services:LocalizationService.Instance}}" />
                                                                                             <Setter Property="Background" Value="#2E60CDFF" />
                                                                                             <Setter Property="Foreground" Value="#8AE0FF" />
                                                                                         </DataTrigger>
@@ -338,9 +339,11 @@
                                             <Border Background="#18FFFFFF" BorderBrush="#22FFFFFF" BorderThickness="1" CornerRadius="8" Padding="10,7" Cursor="SizeAll">
                                                 <DockPanel>
                                                     <Button DockPanel.Dock="Right" Content="&#xE711;" FontFamily="Segoe Fluent Icons" FontSize="10" Width="24" Height="24" Padding="0" Background="Transparent" BorderThickness="0" Foreground="#B0FFFFFF" Cursor="Hand"
+                                                            ToolTip="{Binding [TooltipRemoveMetric], Source={x:Static services:LocalizationService.Instance}}"
                                                             Command="{Binding DataContext.RemoveMetricCommand, RelativeSource={RelativeSource AncestorType=Window}}" CommandParameter="{Binding}" />
 
                                                     <Button DockPanel.Dock="Right" Width="26" Height="24" Padding="0" Margin="2,0" Background="Transparent" BorderThickness="0" Cursor="Hand"
+                                                            ToolTip="{Binding [TooltipCustomizeMetric], Source={x:Static services:LocalizationService.Instance}}"
                                                             Command="{Binding DataContext.CustomizeMetricCommand, RelativeSource={RelativeSource AncestorType=Window}}" CommandParameter="{Binding}">
                                                         <ui:SymbolIcon Symbol="PaintBrush16" FontSize="13" Foreground="#B8FFFFFF" />
                                                     </Button>
@@ -372,7 +375,7 @@
                                             </Style.Triggers>
                                         </Style>
                                     </Border.Style>
-                                    <TextBlock Text="Kéo thả thẻ thông số từ cột bên trái vào đây để hiển thị trên Widget nổi" FontSize="12" Foreground="#88FFFFFF" TextAlignment="Center" TextWrapping="Wrap" VerticalAlignment="Center" />
+                                    <TextBlock Text="{Binding [EmptyActiveList], Source={x:Static services:LocalizationService.Instance}}" FontSize="12" Foreground="#88FFFFFF" TextAlignment="Center" TextWrapping="Wrap" VerticalAlignment="Center" />
                                 </Border>
                             </Grid>
                         </Grid>
@@ -500,7 +503,7 @@
                                     <TextBlock Text="{Binding [DisplayNameLabel], Source={x:Static services:LocalizationService.Instance}}" FontSize="12.5" FontWeight="SemiBold" Foreground="#E8FFFFFF" Margin="0,0,0,6" />
                                     <DockPanel Margin="0,0,0,14">
                                         <ui:Button DockPanel.Dock="Right" Content="{Binding [BtnResetName], Source={x:Static services:LocalizationService.Instance}}" Command="{Binding ResetSelectedMetricLabelCommand}" Appearance="Secondary" Padding="10,6" Margin="8,0,0,0" />
-                                        <ui:TextBox Text="{Binding SelectedCustomizationMetric.CustomLabel, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" PlaceholderText="Để trống để dùng tên mặc định..." />
+                                        <ui:TextBox Text="{Binding SelectedCustomizationMetric.CustomLabel, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" PlaceholderText="{Binding [CustomLabelPlaceholder], Source={x:Static services:LocalizationService.Instance}}" />
                                     </DockPanel>
 
                                     <Border Background="#10FFFFFF" BorderBrush="#1AFFFFFF" BorderThickness="1" CornerRadius="8" Padding="12,10" Margin="0,0,0,14">
@@ -521,7 +524,7 @@
                                             <StackPanel Margin="0,12,0,0" IsEnabled="{Binding SelectedCustomizationMetric.IsHighlightedBlock}">
                                                 <DockPanel Margin="0,0,0,4">
                                                     <ui:Button DockPanel.Dock="Right"
-                                                               Content="Áp dụng mức này cho tất cả"
+                                                               Content="{Binding [BtnApplyHighlightAll], Source={x:Static services:LocalizationService.Instance}}"
                                                                Command="{Binding ApplySelectedHighlightIntensityAllCommand}"
                                                                Appearance="Secondary"
                                                                Padding="8,3"
@@ -533,7 +536,7 @@
                                                                FontWeight="SemiBold"
                                                                Foreground="#60CDFF"
                                                                VerticalAlignment="Center" />
-                                                    <TextBlock Text="Mức độ nổi khối (0%: phẳng tối giản → 100%: nổi 3D)"
+                                                    <TextBlock Text="{Binding [HighlightIntensityLabel], Source={x:Static services:LocalizationService.Instance}}"
                                                                FontSize="12"
                                                                Foreground="#DCE0E8"
                                                                VerticalAlignment="Center" />
@@ -569,7 +572,7 @@
 
                                     <Border Background="#10FFFFFF" BorderBrush="#2460CDFF" BorderThickness="1" CornerRadius="8" Padding="12,10" Margin="0,0,0,14" Visibility="{Binding SelectedCustomizationMetric.IsGraphMetric, Converter={StaticResource BoolToVis}}">
                                         <StackPanel>
-                                            <TextBlock Text="Tùy chỉnh Đồ thị FPS" FontSize="13" FontWeight="SemiBold" Foreground="#8AE0FF" Margin="0,0,0,10" />
+                                            <TextBlock Text="{Binding [FpsGraphCustomizeTitle], Source={x:Static services:LocalizationService.Instance}}" FontSize="13" FontWeight="SemiBold" Foreground="#8AE0FF" Margin="0,0,0,10" />
                                             <DockPanel Margin="0,0,0,4">
                                                 <TextBlock DockPanel.Dock="Right" Text="{Binding FpsGraphHeightLabel}" FontSize="12" FontWeight="SemiBold" Foreground="#60CDFF" />
                                                 <TextBlock Text="{Binding [FpsGraphHeightLabel], Source={x:Static services:LocalizationService.Instance}}" FontSize="12" Foreground="#E0FFFFFF" />
@@ -736,7 +739,7 @@
                         <Border Style="{StaticResource SectionCardStyle}" BorderBrush="#3C60CDFF" Margin="0,0,0,14">
                             <StackPanel>
                                 <DockPanel Margin="0,0,0,8">
-                                    <ui:Button DockPanel.Dock="Right" Content="Đặt lại tự động" Command="{Binding ClearCurrentGameOverridesCommand}" Appearance="Secondary" Padding="10,5" IsEnabled="{Binding HasOverrideTargetGame}" />
+                                    <ui:Button DockPanel.Dock="Right" Content="{Binding [BtnResetAuto], Source={x:Static services:LocalizationService.Instance}}" Command="{Binding ClearCurrentGameOverridesCommand}" Appearance="Secondary" Padding="10,5" IsEnabled="{Binding HasOverrideTargetGame}" />
                                     <StackPanel>
                                         <TextBlock Text="{Binding [QuickOverrideTitle], Source={x:Static services:LocalizationService.Instance}}" FontSize="15" FontWeight="SemiBold" Foreground="#8AE0FF" />
                                         <TextBlock Text="{Binding [QuickOverrideSub], Source={x:Static services:LocalizationService.Instance}}" FontSize="11.5" Foreground="#A0FFFFFF" TextWrapping="Wrap" Margin="0,2,0,0" />
@@ -751,17 +754,17 @@
                                 <!-- Chọn hồ sơ .exe đang chạy / đã lưu hoặc thêm thủ công -->
                                 <WrapPanel Margin="0,0,0,10" VerticalAlignment="Center">
                                     <TextBlock Text="{Binding OverrideTargetGameDisplay}" FontSize="12.5" FontWeight="SemiBold" Foreground="White" VerticalAlignment="Center" Margin="0,0,12,6" />
-                                    <ComboBox ItemsSource="{Binding SavedGameProfileNames}" SelectedItem="{Binding CurrentOverrideGameExe, Mode=TwoWay}" MinWidth="180" Margin="0,0,10,6" ToolTip="Chọn hồ sơ game (.exe) đã phát hiện hoặc đã lưu" />
+                                    <ComboBox ItemsSource="{Binding SavedGameProfileNames}" SelectedItem="{Binding CurrentOverrideGameExe, Mode=TwoWay}" MinWidth="180" Margin="0,0,10,6" ToolTip="{Binding [TooltipGameProfileCombo], Source={x:Static services:LocalizationService.Instance}}" />
                                     <StackPanel Orientation="Horizontal" Margin="0,0,0,6">
-                                        <ui:TextBox Width="175" Text="{Binding ManualGameExeInput, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" PlaceholderText="Nhập tên game.exe..." Margin="0,0,6,0" />
-                                        <ui:Button Content="Tạo / Chọn" Command="{Binding ApplyManualGameExeCommand}" Appearance="Secondary" Padding="10,6" />
+                                        <ui:TextBox Width="175" Text="{Binding ManualGameExeInput, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" PlaceholderText="{Binding [ManualExePlaceholder], Source={x:Static services:LocalizationService.Instance}}" Margin="0,0,6,0" />
+                                        <ui:Button Content="{Binding [BtnCreateSelect], Source={x:Static services:LocalizationService.Instance}}" Command="{Binding ApplyManualGameExeCommand}" Appearance="Secondary" Padding="10,6" />
                                     </StackPanel>
                                 </WrapPanel>
 
                                 <!-- Xem trước huy hiệu đang hiển thị trên Widget -->
                                 <Border Background="#10000000" BorderBrush="#20FFFFFF" BorderThickness="1" CornerRadius="8" Padding="10,8" Margin="0,0,0,10">
                                     <DockPanel>
-                                        <TextBlock DockPanel.Dock="Left" Text="Huy hiệu trên Widget:" FontSize="11.5" Foreground="#99FFFFFF" VerticalAlignment="Center" Margin="0,0,10,0" />
+                                        <TextBlock DockPanel.Dock="Left" Text="{Binding [BadgesOnWidgetLabel], Source={x:Static services:LocalizationService.Instance}}" FontSize="11.5" Foreground="#99FFFFFF" VerticalAlignment="Center" Margin="0,0,10,0" />
                                         <ItemsControl ItemsSource="{Binding ActiveGpuBadges}">
                                             <ItemsControl.ItemsPanel><ItemsPanelTemplate><WrapPanel /></ItemsPanelTemplate></ItemsControl.ItemsPanel>
                                             <ItemsControl.ItemTemplate>
@@ -896,8 +899,8 @@
                                             <ColumnDefinition Width="Auto" />
                                         </Grid.ColumnDefinitions>
                                         <StackPanel Grid.Column="0" Margin="0,0,12,0">
-                                            <TextBlock Text="Luôn hiện Widget trên các ứng dụng khác" FontSize="15" FontWeight="SemiBold" Foreground="White" />
-                                            <TextBlock Text="Giữ Widget luôn nổi trên cùng các cửa sổ làm việc, trình duyệt và game (Borderless). Tắt để Widget ẩn xuống dưới khi chuyển sang ứng dụng khác."
+                                            <TextBlock Text="{Binding [AlwaysOnTopTitle], Source={x:Static services:LocalizationService.Instance}}" FontSize="15" FontWeight="SemiBold" Foreground="White" />
+                                            <TextBlock Text="{Binding [AlwaysOnTopSub], Source={x:Static services:LocalizationService.Instance}}"
                                                        FontSize="11.5" Foreground="#A0FFFFFF" TextWrapping="Wrap" Margin="0,3,0,0" />
                                         </StackPanel>
                                         <ui:ToggleSwitch Grid.Column="1" IsChecked="{Binding IsWidgetTopmost, Mode=TwoWay}" VerticalAlignment="Center" />
@@ -927,26 +930,26 @@
                                     <!-- 3 chế độ hiệu ứng nền Windows 11 (Tắt làm mờ / Kính mềm / Kính mờ) -->
                                     <Border Background="#10FFFFFF" BorderBrush="#1EFFFFFF" BorderThickness="1" CornerRadius="8" Padding="12,10" Margin="0,0,0,14">
                                         <StackPanel>
-                                            <TextBlock Text="Hiệu ứng nền kính (Windows 11)" FontSize="12.5" FontWeight="SemiBold" Foreground="White" Margin="0,0,0,8" />
+                                            <TextBlock Text="{Binding [BlurModeTitle], Source={x:Static services:LocalizationService.Instance}}" FontSize="12.5" FontWeight="SemiBold" Foreground="White" Margin="0,0,0,8" />
 
                                             <RadioButton GroupName="WidgetBlurModeGroup" IsChecked="{Binding IsBlurOff, Mode=TwoWay}" Foreground="White" Margin="0,0,0,7">
                                                 <StackPanel>
-                                                    <TextBlock Text="Tắt làm mờ (Nhẹ nhất khi chơi game)" FontSize="12.5" FontWeight="Medium" Foreground="White" />
-                                                    <TextBlock Text="Chỉ dùng màu nền phẳng theo thanh trượt độ đậm, tắt hoàn toàn hiệu ứng DWM." FontSize="11" Foreground="#90FFFFFF" TextWrapping="Wrap" />
+                                                    <TextBlock Text="{Binding [BlurOffTitle], Source={x:Static services:LocalizationService.Instance}}" FontSize="12.5" FontWeight="Medium" Foreground="White" />
+                                                    <TextBlock Text="{Binding [BlurOffSub], Source={x:Static services:LocalizationService.Instance}}" FontSize="11" Foreground="#90FFFFFF" TextWrapping="Wrap" />
                                                 </StackPanel>
                                             </RadioButton>
 
                                             <RadioButton GroupName="WidgetBlurModeGroup" IsChecked="{Binding IsSoftGlass, Mode=TwoWay}" Foreground="White" Margin="0,0,0,7">
                                                 <StackPanel>
-                                                    <TextBlock Text="Kính mềm (Liquid Glass / Soft Glass)" FontSize="12.5" FontWeight="Medium" Foreground="#8AE0FF" />
-                                                    <TextBlock Text="Làm mờ nhẹ giữ đường nét mềm phía sau, viền phản quang trắng sáng sắc nét và ánh bóng kính." FontSize="11" Foreground="#90FFFFFF" TextWrapping="Wrap" />
+                                                    <TextBlock Text="{Binding [BlurSoftTitle], Source={x:Static services:LocalizationService.Instance}}" FontSize="12.5" FontWeight="Medium" Foreground="#8AE0FF" />
+                                                    <TextBlock Text="{Binding [BlurSoftSub], Source={x:Static services:LocalizationService.Instance}}" FontSize="11" Foreground="#90FFFFFF" TextWrapping="Wrap" />
                                                 </StackPanel>
                                             </RadioButton>
 
                                             <RadioButton GroupName="WidgetBlurModeGroup" IsChecked="{Binding IsFrostedGlass, Mode=TwoWay}" Foreground="White">
                                                 <StackPanel>
-                                                    <TextBlock Text="Kính mờ (Frosted Glass / Acrylic)" FontSize="12.5" FontWeight="Medium" Foreground="#C4B5FD" />
-                                                    <TextBlock Text="Kính phun cát tán nhòe sâu chuẩn Windows 11 (Acrylic), viền siêu mảnh dịu mắt và bo góc khít." FontSize="11" Foreground="#90FFFFFF" TextWrapping="Wrap" />
+                                                    <TextBlock Text="{Binding [BlurFrostedTitle], Source={x:Static services:LocalizationService.Instance}}" FontSize="12.5" FontWeight="Medium" Foreground="#C4B5FD" />
+                                                    <TextBlock Text="{Binding [BlurFrostedSub], Source={x:Static services:LocalizationService.Instance}}" FontSize="11" Foreground="#90FFFFFF" TextWrapping="Wrap" />
                                                 </StackPanel>
                                             </RadioButton>
                                         </StackPanel>
@@ -958,12 +961,12 @@
                                             <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
                                             <StackPanel Grid.Column="0" Margin="0,0,10,0">
                                                 <StackPanel Orientation="Horizontal">
-                                                    <TextBlock Text="Tự động co giãn nội dung theo kích thước cửa sổ" FontSize="12.5" FontWeight="SemiBold" Foreground="White" TextWrapping="Wrap" />
+                                                    <TextBlock Text="{Binding [AutoScaleTitle], Source={x:Static services:LocalizationService.Instance}}" FontSize="12.5" FontWeight="SemiBold" Foreground="White" TextWrapping="Wrap" />
                                                     <Border Background="#2060CDFF" CornerRadius="6" Padding="6,1" Margin="8,0,0,0" VerticalAlignment="Center">
                                                         <TextBlock Text="{Binding ContentScalePercentText}" FontSize="10.5" FontWeight="SemiBold" Foreground="#8AE0FF" />
                                                     </Border>
                                                 </StackPanel>
-                                                <TextBlock Text="Kéo cạnh/góc phóng to hoặc thu nhỏ Widget sẽ tự tỷ lệ hóa chữ, icon, thẻ nổi khối và đồ thị sắc nét." FontSize="11" Foreground="#90FFFFFF" TextWrapping="Wrap" Margin="0,2,0,0" />
+                                                <TextBlock Text="{Binding [AutoScaleSub], Source={x:Static services:LocalizationService.Instance}}" FontSize="11" Foreground="#90FFFFFF" TextWrapping="Wrap" Margin="0,2,0,0" />
                                             </StackPanel>
                                             <ui:ToggleSwitch Grid.Column="1" IsChecked="{Binding AutoScaleContent, Mode=TwoWay}" VerticalAlignment="Center" />
                                         </Grid>
@@ -1066,8 +1069,8 @@
                                     </Grid>
 
                                     <WrapPanel Margin="0,4,0,6">
-                                        <ui:Button Content="Đặt lại bộ đếm FPS (Ctrl+Shift+R)" Command="{Binding ResetFpsStatsCommand}" Appearance="Secondary" Padding="10,5" Margin="0,0,8,4" />
-                                        <ui:Button Content="Tải / Cập nhật PresentMon từ GitHub" Command="{Binding DownloadPresentMonCommand}" Appearance="Secondary" Padding="10,5" Margin="0,0,0,4" />
+                                        <ui:Button Content="{Binding [BtnResetFpsFull], Source={x:Static services:LocalizationService.Instance}}" Command="{Binding ResetFpsStatsCommand}" Appearance="Secondary" Padding="10,5" Margin="0,0,8,4" />
+                                        <ui:Button Content="{Binding [BtnUpdatePresentMon], Source={x:Static services:LocalizationService.Instance}}" Command="{Binding DownloadPresentMonCommand}" Appearance="Secondary" Padding="10,5" Margin="0,0,0,4" />
                                     </WrapPanel>
                                     <TextBlock Text="{Binding PresentMonPathDisplay}" FontSize="11" Foreground="#8AE0FF" TextWrapping="Wrap" />
                                     <TextBlock Text="{Binding PresentMonDownloadFeedback}" FontSize="11" Foreground="#4ADE80" TextWrapping="Wrap" Margin="0,3,0,0" />
@@ -1103,7 +1106,7 @@
 
                                     <!-- Phông chữ cài sẵn trên Windows (hiện tên theo đúng kiểu chữ) -->
                                     <DockPanel Margin="0,0,0,12">
-                                        <TextBlock Text="Phông chữ (Font)" FontSize="12.5" Foreground="#E0FFFFFF" VerticalAlignment="Center" />
+                                        <TextBlock Text="{Binding [FontFamilyLabel], Source={x:Static services:LocalizationService.Instance}}" FontSize="12.5" Foreground="#E0FFFFFF" VerticalAlignment="Center" />
                                         <ComboBox DockPanel.Dock="Right" Width="230"
                                                   ItemsSource="{Binding InstalledFontFamilies}"
                                                   SelectedItem="{Binding SelectedFontFamily, Mode=TwoWay}">
@@ -1117,7 +1120,7 @@
 
                                     <!-- Độ đậm nhạt (7 mức từ Thin đến ExtraBold) -->
                                     <DockPanel Margin="0,0,0,14">
-                                        <TextBlock Text="Độ đậm nhạt (FontWeight)" FontSize="12.5" Foreground="#E0FFFFFF" VerticalAlignment="Center" />
+                                        <TextBlock Text="{Binding [FontWeightLabel], Source={x:Static services:LocalizationService.Instance}}" FontSize="12.5" Foreground="#E0FFFFFF" VerticalAlignment="Center" />
                                         <ComboBox DockPanel.Dock="Right" Width="230"
                                                   ItemsSource="{Binding FontWeightOptions}"
                                                   SelectedItem="{Binding SelectedFontWeightOption, Mode=TwoWay}">
@@ -1180,7 +1183,7 @@
                                             <TextBlock Text="{Binding CurrentVersionDisplay}" FontSize="12" FontWeight="SemiBold" Foreground="#8AE0FF" />
                                         </Border>
                                         <StackPanel>
-                                            <TextBlock Text="Cập nhật phần mềm" FontSize="15" FontWeight="SemiBold" Foreground="White" />
+                                            <TextBlock Text="{Binding [UpdateSectionTitle], Source={x:Static services:LocalizationService.Instance}}" FontSize="15" FontWeight="SemiBold" Foreground="White" />
                                             <TextBlock Text="{Binding GitHubRepoDisplay}" FontSize="11.5" Foreground="#90FFFFFF" Margin="0,2,0,0" />
                                         </StackPanel>
                                     </DockPanel>
@@ -1188,8 +1191,8 @@
                                     <Grid Margin="0,0,0,12">
                                         <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
                                         <StackPanel Grid.Column="0" Margin="0,0,12,0">
-                                            <TextBlock Text="Tự động kiểm tra bản mới khi khởi động" FontSize="13" FontWeight="Medium" Foreground="White" />
-                                            <TextBlock Text="Chạy ngầm sau khi mở ứng dụng 3 giây để tìm bản phát hành mới trên GitHub Releases."
+                                            <TextBlock Text="{Binding [AutoCheckUpdateTitle], Source={x:Static services:LocalizationService.Instance}}" FontSize="13" FontWeight="Medium" Foreground="White" />
+                                            <TextBlock Text="{Binding [AutoCheckUpdateSub], Source={x:Static services:LocalizationService.Instance}}"
                                                        FontSize="11.5" Foreground="#99FFFFFF" TextWrapping="Wrap" Margin="0,2,0,0" />
                                         </StackPanel>
                                         <ui:ToggleSwitch Grid.Column="1" IsChecked="{Binding AutoCheckUpdatesOnStartup, Mode=TwoWay}" VerticalAlignment="Center" />
@@ -1197,7 +1200,7 @@
 
                                     <DockPanel>
                                         <ui:Button DockPanel.Dock="Left"
-                                                   Content="Kiểm tra cập nhật ngay"
+                                                   Content="{Binding [BtnCheckUpdates], Source={x:Static services:LocalizationService.Instance}}"
                                                    Command="{Binding CheckForUpdatesCommand}"
                                                    IsEnabled="{Binding CanCheckUpdates}"
                                                    Appearance="Primary"

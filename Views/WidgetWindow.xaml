@@ -3,7 +3,8 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:ui="http://schemas.lepo.co/wpfui/2022/xaml"
         xmlns:controls="clr-namespace:WinHardwareMonitor.Controls"
-        Title="Widget Thông số phần cứng"
+        xmlns:services="clr-namespace:WinHardwareMonitor.Services"
+        Title="{Binding [WidgetWindowTitle], Source={x:Static services:LocalizationService.Instance}}"
         Icon="pack://application:,,,/Assets/app.ico"
         WindowStyle="None"
         AllowsTransparency="False"
@@ -64,13 +65,13 @@
 
     <Window.ContextMenu>
         <ContextMenu>
-            <MenuItem Header="Mở bảng điều khiển" Command="{Binding OpenSettingsCommand}" />
-            <MenuItem Header="Luôn hiện trên ứng dụng khác" IsCheckable="True" IsChecked="{Binding IsWidgetTopmost, Mode=TwoWay}" />
-            <MenuItem Header="Khóa vị trí - Xuyên chuột (Ctrl + Shift + L)" Command="{Binding ToggleClickThroughCommand}" />
-            <MenuItem Header="Đặt lại bộ đếm FPS 60s (Ctrl + Shift + R)" Command="{Binding ResetFpsStatsCommand}" />
-            <MenuItem Header="Ẩn Widget" Command="{Binding ToggleWidgetVisibilityCommand}" />
+            <MenuItem Header="{Binding [TrayOpenSettings], Source={x:Static services:LocalizationService.Instance}}" Command="{Binding OpenSettingsCommand}" />
+            <MenuItem Header="{Binding [TrayTopmost], Source={x:Static services:LocalizationService.Instance}}" IsCheckable="True" IsChecked="{Binding IsWidgetTopmost, Mode=TwoWay}" />
+            <MenuItem Header="{Binding [TrayLock], Source={x:Static services:LocalizationService.Instance}}" Command="{Binding ToggleClickThroughCommand}" />
+            <MenuItem Header="{Binding [TrayResetFps], Source={x:Static services:LocalizationService.Instance}}" Command="{Binding ResetFpsStatsCommand}" />
+            <MenuItem Header="{Binding [BtnHideWidget], Source={x:Static services:LocalizationService.Instance}}" Command="{Binding ToggleWidgetVisibilityCommand}" />
             <Separator />
-            <MenuItem Header="Thoát ứng dụng" Command="{Binding ExitAppCommand}" />
+            <MenuItem Header="{Binding [BtnExitApp], Source={x:Static services:LocalizationService.Instance}}" Command="{Binding ExitAppCommand}" />
         </ContextMenu>
     </Window.ContextMenu>
 
@@ -151,7 +152,7 @@
                                     Opacity="{Binding TileOpacity}"
                                     Cursor="Hand"
                                     PreviewMouseLeftButtonDown="WidgetMetricTile_PreviewMouseLeftButtonDown"
-                                    ToolTip="Nhấn giữ và kéo mục này để đổi vị trí (kéo thanh nắm phía trên hoặc giữ Ctrl + kéo để di chuyển Widget)">
+                                    ToolTip="{Binding [WidgetTileTip], Source={x:Static services:LocalizationService.Instance}}">
                                 <Border.Effect>
                                     <DropShadowEffect Direction="270"
                                                       Color="#000000"
@@ -343,7 +344,7 @@
                     </ItemsControl.ItemTemplate>
                 </ItemsControl>
 
-                <TextBlock Text="Kéo thông số vào đây hoặc chọn từ Bảng điều khiển"
+                <TextBlock Text="{Binding [WidgetEmptyHint], Source={x:Static services:LocalizationService.Instance}}"
                            FontSize="12"
                            Foreground="{Binding WidgetSecondaryTextBrush}"
                            HorizontalAlignment="Center"
@@ -413,7 +414,7 @@
                 Background="#55FFFFFF"
                 Cursor="SizeAll"
                 Visibility="Collapsed"
-                ToolTip="Kéo thanh này để di chuyển toàn bộ Widget"
+                ToolTip="{Binding [WidgetTopHandleTip], Source={x:Static services:LocalizationService.Instance}}"
                 MouseLeftButtonDown="TopMoveHandle_MouseLeftButtonDown" />
 
         <!-- Viền gợi ý tinh tế khi di chuột qua lúc mở khóa -->

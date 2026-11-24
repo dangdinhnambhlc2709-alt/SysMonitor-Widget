@@ -14,31 +14,75 @@ using Wpf.Ui.Controls;
 
 namespace WinHardwareMonitor.ViewModels;
 
-public sealed class MetricGroupViewModel
+public sealed class MetricGroupViewModel : ObservableObject
 {
     public string GroupKey { get; init; } = string.Empty;
-    public string Title { get; init; } = string.Empty;
-    public string Subtitle { get; init; } = string.Empty;
+    public Func<string> TitleProvider { get; init; } = () => string.Empty;
+    public Func<string> SubtitleProvider { get; init; } = () => string.Empty;
+    public string Title => TitleProvider();
+    public string Subtitle => SubtitleProvider();
     public ObservableCollection<MetricItem> Items { get; } = new();
+
+    public void RefreshLocalization()
+    {
+        OnPropertyChanged(nameof(Title));
+        OnPropertyChanged(nameof(Subtitle));
+    }
 }
 
-public sealed class ColorPreset
+public sealed class ColorPreset : ObservableObject
 {
-    public string Name { get; init; } = string.Empty;
+    public string NameKey { get; init; } = string.Empty;
+    public string Name => LocalizationService.Instance[NameKey];
     public string Hex { get; init; } = "#FFFFFF";
     public SolidColorBrush Brush { get; init; } = new(Colors.White);
+
+    public void RefreshLocalization() => OnPropertyChanged(nameof(Name));
 }
 
-public sealed class IconChoice
+public sealed class IconChoice : ObservableObject
 {
-    public string Name { get; init; } = string.Empty;
+    public string NameKey { get; init; } = string.Empty;
+    public string Name => LocalizationService.Instance[NameKey];
     public string SymbolName { get; init; } = string.Empty;
     public SymbolRegular Symbol { get; init; }
+
+    public void RefreshLocalization() => OnPropertyChanged(nameof(Name));
 }
 
-public sealed record StretchModeOption(BackgroundImageStretchMode Mode, string DisplayName);
+public sealed class StretchModeOption : ObservableObject
+{
+    public BackgroundImageStretchMode Mode { get; }
+    public string DisplayKey { get; }
+    public string DisplayName => LocalizationService.Instance[DisplayKey];
 
-public sealed record FontWeightOption(string Key, string DisplayName, FontWeight Weight, FontWeight LabelWeight);
+    public StretchModeOption(BackgroundImageStretchMode mode, string displayKey)
+    {
+        Mode = mode;
+        DisplayKey = displayKey;
+    }
+
+    public void RefreshLocalization() => OnPropertyChanged(nameof(DisplayName));
+}
+
+public sealed class FontWeightOption : ObservableObject
+{
+    public string Key { get; }
+    public string DisplayKey { get; }
+    public string DisplayName => LocalizationService.Instance[DisplayKey];
+    public FontWeight Weight { get; }
+    public FontWeight LabelWeight { get; }
+
+    public FontWeightOption(string key, string displayKey, FontWeight weight, FontWeight labelWeight)
+    {
+        Key = key;
+        DisplayKey = displayKey;
+        Weight = weight;
+        LabelWeight = labelWeight;
+    }
+
+    public void RefreshLocalization() => OnPropertyChanged(nameof(DisplayName));
+}
 
 public sealed class MainViewModel : ObservableObject
 {
@@ -98,7 +142,8 @@ public sealed class MainViewModel : ObservableObject
     private bool _hideUnsupportedGpuTechs;
     private bool _useCustomGpuBadgeColor;
     private string _customGpuBadgeColorHex = "#60CDFF";
-    private string _gpuDetectionStatusText = "Chờ game 3D ở cửa sổ trên cùng để tự động nhận diện công nghệ GPU...";
+    private string _gpuDetectionStatusText = string.Empty;
+    private GpuTechDetectionSnapshot? _lastGpuTechSnapshot;
     private bool _isGpuTechGameActive;
     private string _currentOverrideGameExe = string.Empty;
     private string _manualGameExeInput = string.Empty;
@@ -110,7 +155,8 @@ public sealed class MainViewModel : ObservableObject
     private double _fpsGraphHeight = 46;
     private string _fpsGraphBaseColorHex = "#4ADE80";
     private string _fpsGraphFrameGenColorHex = "#60CDFF";
-    private string _fpsStatusText = "Đang khởi tạo PresentMon 2.x...";
+    private string _fpsStatusText = string.Empty;
+    private FpsSnapshot? _lastFpsSnapshot;
     private bool _isPresentMonAvailable;
     private bool _isPresentMonRunning;
     private bool _isGameActive;
@@ -147,14 +193,14 @@ public sealed class MainViewModel : ObservableObject
 
     public bool IsAdministrator { get; }
     public string AdminStatusText => IsAdministrator
-        ? "Đang chạy với quyền Quản trị viên"
-        : "Thiếu quyền Quản trị viên (một số cảm biến & PresentMon có thể bị hạn chế)";
+        ? LocalizationService.Instance["AdminRunning"]
+        : LocalizationService.Instance["AdminMissing"];
 
     public string ConfigFilePath => _configService.ConfigPath;
     public string CurrentVersionDisplay => $"v{_updateService.CurrentVersionString}";
     public string GitHubRepoDisplay => $"{UpdateService.GitHubOwner}/{UpdateService.GitHubRepo}";
     public string PresentMonPathDisplay => string.IsNullOrWhiteSpace(_presentMonService.PresentMonPath)
-        ? "tools\\PresentMon.exe (chưa tìm thấy)"
+        ? LocalizationService.Instance["PresentMonMissingPath"]
         : _presentMonService.PresentMonPath;
 
     public LanguageOption SelectedLanguage
@@ -165,7 +211,6 @@ public sealed class MainViewModel : ObservableObject
             if (value != null && SetProperty(ref _selectedLanguage, value))
             {
                 LocalizationService.Instance.CurrentLanguageCode = value.Code;
-                OnPropertyChanged(nameof(WidgetVisibilityButtonText));
                 ScheduleConfigSave();
             }
         }
@@ -188,8 +233,8 @@ public sealed class MainViewModel : ObservableObject
     }
 
     public string HotkeyStatusText => IsHotkeyRegistered
-        ? "Khóa Widget: Ctrl + Shift + L  •  Đặt lại FPS: Ctrl + Shift + R"
-        : "Ctrl + Shift + L đang bị ứng dụng khác chiếm dụng";
+        ? LocalizationService.Instance["HotkeyStatusOk"]
+        : LocalizationService.Instance["HotkeyStatusBusy"];
 
     public MetricItem? SelectedCustomizationMetric
     {
@@ -367,7 +412,7 @@ public sealed class MainViewModel : ObservableObject
 
     public string BackgroundImageDisplayName => HasBackgroundImage
         ? Path.GetFileName(_backgroundImagePath)
-        : "Chưa chọn ảnh nền PNG";
+        : LocalizationService.Instance["BgImageNone"];
 
     public double BackgroundImageOpacity
     {
@@ -479,8 +524,8 @@ public sealed class MainViewModel : ObservableObject
     public bool HasOverrideTargetGame => !string.IsNullOrWhiteSpace(_currentOverrideGameExe);
 
     public string OverrideTargetGameDisplay => HasOverrideTargetGame
-        ? $"Hồ sơ game: {_currentOverrideGameExe}"
-        : "Chưa phát hiện game nào (mở game 3D hoặc nhập tên .exe để cấu hình sẵn)";
+        ? LocalizationService.Instance.Format("OverrideProfileFormat", _currentOverrideGameExe)
+        : LocalizationService.Instance["OverrideNoGame"];
 
     // --- FPS Properties ---
     public bool AutoHideFpsWhenIdle
@@ -629,13 +674,13 @@ public sealed class MainViewModel : ObservableObject
                 _runAtWindowsStartup = value;
                 OnPropertyChanged();
                 StartupStatusFeedback = value
-                    ? "Đã bật khởi chạy cùng Windows (Task Scheduler mức Quản trị viên)."
-                    : "Đã tắt khởi chạy cùng Windows.";
+                    ? LocalizationService.Instance["StartupEnabledMsg"]
+                    : LocalizationService.Instance["StartupDisabledMsg"];
                 ScheduleConfigSave();
             }
             else
             {
-                StartupStatusFeedback = $"Không thể thay đổi khởi chạy cùng Windows: {err}";
+                StartupStatusFeedback = LocalizationService.Instance.Format("StartupErrorMsg", err ?? string.Empty);
                 OnPropertyChanged();
             }
         }
@@ -661,8 +706,8 @@ public sealed class MainViewModel : ObservableObject
     }
 
     public string CloseBehaviorFooterText => MinimizeToTrayOnClose
-        ? "Cấu hình tự động lưu cục bộ. Đóng cửa sổ này sẽ tự ẩn vào khay hệ thống (System Tray) để Widget tiếp tục chạy."
-        : "Cấu hình tự động lưu cục bộ. Đóng cửa sổ này sẽ thoát hoàn toàn ứng dụng (đang tắt chế độ ẩn vào System Tray).";
+        ? LocalizationService.Instance["FooterMinToTray"]
+        : LocalizationService.Instance["FooterExitOnClose"];
 
     public bool AutoCheckUpdatesOnStartup
     {
@@ -809,7 +854,7 @@ public sealed class MainViewModel : ObservableObject
     }
 
     public string BackgroundOpacityLabel => BackgroundOpacity <= 0
-        ? "0% (Trong suốt hoàn toàn)"
+        ? LocalizationService.Instance["BgOpacityZero"]
         : $"{BackgroundOpacity:F0}%";
 
     public string BackgroundColorHex
@@ -975,8 +1020,8 @@ public sealed class MainViewModel : ObservableObject
     public bool IsUnlocked => !IsClickThrough;
 
     public string ClickThroughStatusLabel => IsClickThrough
-        ? "Đang khóa (Xuyên chuột)"
-        : "Đang mở khóa (Có thể kéo & co giãn)";
+        ? LocalizationService.Instance["ClickThroughLocked"]
+        : LocalizationService.Instance["ClickThroughUnlocked"];
 
     public bool IsWidgetTopmost
     {
@@ -1114,7 +1159,7 @@ public sealed class MainViewModel : ObservableObject
             : 0.28;
 
     public bool HasActiveMetrics => ActiveMetrics.Count > 0;
-    public string ActiveMetricCountText => $"{ActiveMetrics.Count} mục";
+    public string ActiveMetricCountText => LocalizationService.Instance.Format("ActiveCountFormat", ActiveMetrics.Count);
 
     public event Action<bool>? ClickThroughChanged;
     public event Action<bool>? WidgetTopmostChanged;
@@ -1186,58 +1231,58 @@ public sealed class MainViewModel : ObservableObject
 
         FontWeightOptions = new List<FontWeightOption>
         {
-            new("Thin", "Rất mảnh (Thin)", FontWeights.Thin, FontWeights.Thin),
-            new("Light", "Mảnh (Light)", FontWeights.Light, FontWeights.Light),
-            new("Normal", "Thường (Normal)", FontWeights.Normal, FontWeights.Light),
-            new("Medium", "Vừa (Medium)", FontWeights.Medium, FontWeights.Normal),
-            new("SemiBold", "Hơi đậm (SemiBold)", FontWeights.SemiBold, FontWeights.Medium),
-            new("Bold", "Đậm (Bold)", FontWeights.Bold, FontWeights.Medium),
-            new("ExtraBold", "Rất đậm (ExtraBold)", FontWeights.ExtraBold, FontWeights.SemiBold)
+            new("Thin", "WeightThin", FontWeights.Thin, FontWeights.Thin),
+            new("Light", "WeightLight", FontWeights.Light, FontWeights.Light),
+            new("Normal", "WeightNormal", FontWeights.Normal, FontWeights.Light),
+            new("Medium", "WeightMedium", FontWeights.Medium, FontWeights.Normal),
+            new("SemiBold", "WeightSemiBold", FontWeights.SemiBold, FontWeights.Medium),
+            new("Bold", "WeightBold", FontWeights.Bold, FontWeights.Medium),
+            new("ExtraBold", "WeightExtraBold", FontWeights.ExtraBold, FontWeights.SemiBold)
         };
         _selectedFontWeightOption = FontWeightOptions[4]; // SemiBold
 
         StretchModeOptions = new List<StretchModeOption>
         {
-            new(BackgroundImageStretchMode.UniformToFill, "Lấp đầy khung (UniformToFill)"),
-            new(BackgroundImageStretchMode.Uniform, "Giữ tỷ lệ vừa khung (Uniform)"),
-            new(BackgroundImageStretchMode.Fill, "Kéo giãn vừa khít (Fill)")
+            new(BackgroundImageStretchMode.UniformToFill, "StretchFillFrame"),
+            new(BackgroundImageStretchMode.Uniform, "StretchFitFrame"),
+            new(BackgroundImageStretchMode.Fill, "StretchExact")
         };
 
         TextColorPresets = new List<ColorPreset>
         {
-            MakePreset("Trắng", "#FFFFFF"),
-            MakePreset("Bạc sáng", "#E2E8F0"),
-            MakePreset("Đen than", "#141418"),
-            MakePreset("Xanh Win11", "#60CDFF"),
-            MakePreset("Xanh ngọc", "#2DD4BF"),
-            MakePreset("Xanh lá", "#4ADE80"),
-            MakePreset("NVIDIA Green", "#76B900"),
-            MakePreset("Vàng nắng", "#FACC15"),
-            MakePreset("Cam ấm", "#FB923C"),
-            MakePreset("Đỏ san hô", "#F87171"),
-            MakePreset("Tím nhạt", "#C084FC")
+            MakePreset("ColorWhite", "#FFFFFF"),
+            MakePreset("ColorSilver", "#E2E8F0"),
+            MakePreset("ColorCharcoal", "#141418"),
+            MakePreset("ColorWin11Blue", "#60CDFF"),
+            MakePreset("ColorTeal", "#2DD4BF"),
+            MakePreset("ColorGreen", "#4ADE80"),
+            MakePreset("ColorNvidiaGreen", "#76B900"),
+            MakePreset("ColorYellow", "#FACC15"),
+            MakePreset("ColorOrange", "#FB923C"),
+            MakePreset("ColorCoralRed", "#F87171"),
+            MakePreset("ColorPurple", "#C084FC")
         };
 
         FluentIconChoices = new List<IconChoice>
         {
-            new() { Name = "Chip CPU", SymbolName = nameof(SymbolRegular.DeveloperBoard24), Symbol = SymbolRegular.DeveloperBoard24 },
-            new() { Name = "Nhiệt kế", SymbolName = nameof(SymbolRegular.Temperature24), Symbol = SymbolRegular.Temperature24 },
-            new() { Name = "Xung nhịp / FrameGen", SymbolName = nameof(SymbolRegular.TopSpeed24), Symbol = SymbolRegular.TopSpeed24 },
-            new() { Name = "Công suất", SymbolName = nameof(SymbolRegular.Flash24), Symbol = SymbolRegular.Flash24 },
-            new() { Name = "Đồ họa / FPS", SymbolName = nameof(SymbolRegular.Games24), Symbol = SymbolRegular.Games24 },
-            new() { Name = "Đồ thị FPS", SymbolName = nameof(SymbolRegular.ChartMultiple24), Symbol = SymbolRegular.ChartMultiple24 },
-            new() { Name = "Màn hình / VRAM", SymbolName = nameof(SymbolRegular.DesktopPulse24), Symbol = SymbolRegular.DesktopPulse24 },
-            new() { Name = "Đồng hồ đo / Avg", SymbolName = nameof(SymbolRegular.Gauge24), Symbol = SymbolRegular.Gauge24 },
-            new() { Name = "Thanh RAM", SymbolName = nameof(SymbolRegular.Ram20), Symbol = SymbolRegular.Ram20 },
-            new() { Name = "Bộ nhớ", SymbolName = nameof(SymbolRegular.Memory16), Symbol = SymbolRegular.Memory16 },
-            new() { Name = "Ổ cứng (Đọc)", SymbolName = nameof(SymbolRegular.HardDrive24), Symbol = SymbolRegular.HardDrive24 },
-            new() { Name = "Lưu trữ (Ghi)", SymbolName = nameof(SymbolRegular.Storage24), Symbol = SymbolRegular.Storage24 },
-            new() { Name = "Tải xuống", SymbolName = nameof(SymbolRegular.ArrowDownload28), Symbol = SymbolRegular.ArrowDownload28 },
-            new() { Name = "Tải lên", SymbolName = nameof(SymbolRegular.ArrowUpload24), Symbol = SymbolRegular.ArrowUpload24 },
-            new() { Name = "Mạng", SymbolName = nameof(SymbolRegular.Globe28), Symbol = SymbolRegular.Globe28 },
-            new() { Name = "Lưu lượng / 1% Low", SymbolName = nameof(SymbolRegular.DataUsage24), Symbol = SymbolRegular.DataUsage24 },
-            new() { Name = "Thời gian / 0.1% Low", SymbolName = nameof(SymbolRegular.ClockAlarm24), Symbol = SymbolRegular.ClockAlarm24 },
-            new() { Name = "Hệ thống", SymbolName = nameof(SymbolRegular.Server24), Symbol = SymbolRegular.Server24 }
+            new() { NameKey = "IconCpu", SymbolName = nameof(SymbolRegular.DeveloperBoard24), Symbol = SymbolRegular.DeveloperBoard24 },
+            new() { NameKey = "IconTemp", SymbolName = nameof(SymbolRegular.Temperature24), Symbol = SymbolRegular.Temperature24 },
+            new() { NameKey = "IconClockFg", SymbolName = nameof(SymbolRegular.TopSpeed24), Symbol = SymbolRegular.TopSpeed24 },
+            new() { NameKey = "IconPower", SymbolName = nameof(SymbolRegular.Flash24), Symbol = SymbolRegular.Flash24 },
+            new() { NameKey = "IconGpuFps", SymbolName = nameof(SymbolRegular.Games24), Symbol = SymbolRegular.Games24 },
+            new() { NameKey = "IconFpsGraph", SymbolName = nameof(SymbolRegular.ChartMultiple24), Symbol = SymbolRegular.ChartMultiple24 },
+            new() { NameKey = "IconVram", SymbolName = nameof(SymbolRegular.DesktopPulse24), Symbol = SymbolRegular.DesktopPulse24 },
+            new() { NameKey = "IconGaugeAvg", SymbolName = nameof(SymbolRegular.Gauge24), Symbol = SymbolRegular.Gauge24 },
+            new() { NameKey = "IconRam", SymbolName = nameof(SymbolRegular.Ram20), Symbol = SymbolRegular.Ram20 },
+            new() { NameKey = "IconMemory", SymbolName = nameof(SymbolRegular.Memory16), Symbol = SymbolRegular.Memory16 },
+            new() { NameKey = "IconDiskRead", SymbolName = nameof(SymbolRegular.HardDrive24), Symbol = SymbolRegular.HardDrive24 },
+            new() { NameKey = "IconDiskWrite", SymbolName = nameof(SymbolRegular.Storage24), Symbol = SymbolRegular.Storage24 },
+            new() { NameKey = "IconNetDown", SymbolName = nameof(SymbolRegular.ArrowDownload28), Symbol = SymbolRegular.ArrowDownload28 },
+            new() { NameKey = "IconNetUp", SymbolName = nameof(SymbolRegular.ArrowUpload24), Symbol = SymbolRegular.ArrowUpload24 },
+            new() { NameKey = "IconNetwork", SymbolName = nameof(SymbolRegular.Globe28), Symbol = SymbolRegular.Globe28 },
+            new() { NameKey = "IconLow1", SymbolName = nameof(SymbolRegular.DataUsage24), Symbol = SymbolRegular.DataUsage24 },
+            new() { NameKey = "IconLow01", SymbolName = nameof(SymbolRegular.ClockAlarm24), Symbol = SymbolRegular.ClockAlarm24 },
+            new() { NameKey = "IconSystem", SymbolName = nameof(SymbolRegular.Server24), Symbol = SymbolRegular.Server24 }
         };
 
         ToggleMetricCommand = new RelayCommand(p =>
@@ -1354,7 +1399,7 @@ public sealed class MainViewModel : ObservableObject
         {
             if (IsDownloadingPresentMon) return;
             IsDownloadingPresentMon = true;
-            PresentMonDownloadFeedback = "Đang tải Intel PresentMon 2.x từ GitHub...";
+            PresentMonDownloadFeedback = LocalizationService.Instance["PmDownloading"];
             try
             {
                 var (ok, msg) = await _presentMonService.DownloadOfficialPresentMonAsync();
@@ -1419,8 +1464,8 @@ public sealed class MainViewModel : ObservableObject
         {
             var dlg = new OpenFileDialog
             {
-                Title = "Chọn ảnh nền PNG cho Widget",
-                Filter = "Ảnh PNG (*.png)|*.png|Tất cả ảnh (*.png;*.jpg;*.jpeg;*.webp)|*.png;*.jpg;*.jpeg;*.webp"
+                Title = LocalizationService.Instance["DlgChoosePngTitle"],
+                Filter = LocalizationService.Instance["DlgPngFilter"]
             };
             if (dlg.ShowDialog() == true)
                 BackgroundImagePath = dlg.FileName;
@@ -1448,6 +1493,10 @@ public sealed class MainViewModel : ObservableObject
         PopulateMetricsFromService();
         PopulateGpuTechnologies();
         LoadFromConfig();
+        _fpsStatusText = LocalizationService.Instance["PmInitializing"];
+        _gpuDetectionStatusText = LocalizationService.Instance["GpuDetWaiting"];
+        LocalizationService.Instance.LanguageChanged += OnLanguageChanged;
+
         RecalculateContentScale(_widgetWidth, _widgetHeight);
         RefreshAllMetricsInheritedTheme();
         RebuildFilteredCustomizationMetrics();
@@ -1456,6 +1505,55 @@ public sealed class MainViewModel : ObservableObject
         RebuildActiveGpuBadges();
         RebuildBackgroundImageBrush();
         UpdateFpsMetricsVisibility();
+        OnLanguageChanged();
+    }
+
+    private void OnLanguageChanged()
+    {
+        OnPropertyChanged(nameof(AdminStatusText));
+        OnPropertyChanged(nameof(PresentMonPathDisplay));
+        OnPropertyChanged(nameof(HotkeyStatusText));
+        OnPropertyChanged(nameof(BackgroundImageDisplayName));
+        OnPropertyChanged(nameof(OverrideTargetGameDisplay));
+        OnPropertyChanged(nameof(CloseBehaviorFooterText));
+        OnPropertyChanged(nameof(BackgroundOpacityLabel));
+        OnPropertyChanged(nameof(ClickThroughStatusLabel));
+        OnPropertyChanged(nameof(WidgetVisibilityButtonText));
+        OnPropertyChanged(nameof(ActiveMetricCountText));
+
+        FpsStatusText = _lastFpsSnapshot != null
+            ? PresentMonService.FormatStatusText(
+                _lastFpsSnapshot.StatusKind,
+                _lastFpsSnapshot.StatusErrorDetail,
+                _lastFpsSnapshot.ActiveGameName,
+                _lastFpsSnapshot.FrameGenSource)
+            : LocalizationService.Instance["PmInitializing"];
+
+        GpuDetectionStatusText = _lastGpuTechSnapshot != null
+            ? GpuTechDetectionSnapshot.FormatNote(
+                _lastGpuTechSnapshot.StatusKind,
+                _lastGpuTechSnapshot.ForegroundExeName,
+                _lastGpuTechSnapshot.LoadedModuleCount)
+            : LocalizationService.Instance["GpuDetWaiting"];
+
+        foreach (var g in AvailableGroups)
+            g.RefreshLocalization();
+        foreach (var m in AllMetrics)
+            m.RefreshLocalization();
+        foreach (var gpu in DetectedGpus)
+            gpu.RefreshLocalization();
+        foreach (var group in GpuTechGroups)
+            group.RefreshLocalization();
+        foreach (var opt in FontWeightOptions)
+            opt.RefreshLocalization();
+        foreach (var opt in StretchModeOptions)
+            opt.RefreshLocalization();
+        foreach (var preset in TextColorPresets)
+            preset.RefreshLocalization();
+        foreach (var icon in FluentIconChoices)
+            icon.RefreshLocalization();
+
+        UpdateGpuVendorSupportStates();
     }
 
     /// <summary>
@@ -1501,7 +1599,7 @@ public sealed class MainViewModel : ObservableObject
     {
         if (IsCheckingUpdates) return;
         IsCheckingUpdates = true;
-        UpdateStatusMessage = "Đang kiểm tra bản cập nhật mới từ GitHub...";
+        UpdateStatusMessage = LocalizationService.Instance["UpdateChecking"];
         try
         {
             var result = await _updateService.CheckForUpdatesAsync();
@@ -1543,9 +1641,11 @@ public sealed class MainViewModel : ObservableObject
 
     public void ApplyFpsSnapshot(FpsSnapshot snap)
     {
+        _lastFpsSnapshot = snap;
         IsPresentMonAvailable = snap.IsPresentMonAvailable;
         IsPresentMonRunning = snap.IsPresentMonRunning;
-        FpsStatusText = snap.StatusText;
+        FpsStatusText = PresentMonService.FormatStatusText(
+            snap.StatusKind, snap.StatusErrorDetail, snap.ActiveGameName, snap.FrameGenSource);
         IsGameActive = snap.IsGameActive;
         _isFrameGenActive = snap.FrameGenFps.HasValue;
 
@@ -1568,7 +1668,9 @@ public sealed class MainViewModel : ObservableObject
 
     public void ApplyGpuTechDetection(GpuTechDetectionSnapshot snap)
     {
-        GpuDetectionStatusText = snap.DetectionModeNote;
+        _lastGpuTechSnapshot = snap;
+        GpuDetectionStatusText = GpuTechDetectionSnapshot.FormatNote(
+            snap.StatusKind, snap.ForegroundExeName, snap.LoadedModuleCount);
         _isGpuTechGameActive = snap.IsGameActive;
         _lastAutoDetectedTechIds = new HashSet<string>(snap.DetectedTechIds, StringComparer.OrdinalIgnoreCase);
 
@@ -1804,11 +1906,12 @@ public sealed class MainViewModel : ObservableObject
 
             if (!groups.TryGetValue(metric.GroupKey, out var groupVm))
             {
+                var capturedMetric = metric;
                 groupVm = new MetricGroupViewModel
                 {
                     GroupKey = metric.GroupKey,
-                    Title = metric.GroupTitle,
-                    Subtitle = metric.GroupSubtitle
+                    TitleProvider = () => capturedMetric.GroupTitle,
+                    SubtitleProvider = () => capturedMetric.GroupSubtitle
                 };
                 groups[metric.GroupKey] = groupVm;
                 AvailableGroups.Add(groupVm);
@@ -1830,52 +1933,52 @@ public sealed class MainViewModel : ObservableObject
         {
             Vendor = GpuVendor.Nvidia,
             Title = "NVIDIA",
-            Subtitle = "Quét nvngx_dlss.dll, nvngx_dlssg.dll, nvngx_dlssd.dll, sl.reflex.dll và trạng thái driver",
+            SubtitleKey = "GpuSubNvidia",
             AccentBrush = Freeze("#76B900")
         };
-        AddTech(nvidiaGroup, "nv_dlss", "DLSS", "DLSS", "Phát hiện nvngx_dlss.dll (dùng chung thư viện với DLAA — có thể chọn rõ ở mục Ghi đè nhanh)");
-        AddTech(nvidiaGroup, "nv_dlaa", "DLAA", "DLAA", "Khử răng cưa AI độ phân giải gốc (bật qua Ghi đè nhanh cho game nếu dùng DLAA thay vì DLSS)");
-        AddTech(nvidiaGroup, "nv_dlss_fg", "DLSS Frame Generation", "DLSS FG", "Phát hiện nvngx_dlssg.dll / sl.dlss_g.dll");
-        AddTech(nvidiaGroup, "nv_smooth_motion", "Smooth Motion", "Smooth Motion", "Tạo khung hình cấp độ driver NVIDIA (kiểm tra cấu hình driver & PresentMon)");
-        AddTech(nvidiaGroup, "nv_rt", "Ray Tracing", "RT", "Phát hiện thư viện DirectX Raytracing (DXR / RTX)");
-        AddTech(nvidiaGroup, "nv_pt", "Path Tracing", "Path Tracing", "Phát hiện nvngx_dlssd.dll (Ray Reconstruction) hoặc bật thủ công theo hồ sơ game");
-        AddTech(nvidiaGroup, "nv_reflex", "NVIDIA Reflex", "Reflex", "Phát hiện sl.reflex.dll / thư viện giảm độ trễ NVIDIA");
+        AddTech(nvidiaGroup, "nv_dlss", "DLSS", "DLSS", "DescNvDlss");
+        AddTech(nvidiaGroup, "nv_dlaa", "DLAA", "DLAA", "DescNvDlaa");
+        AddTech(nvidiaGroup, "nv_dlss_fg", "DLSS Frame Generation", "DLSS FG", "DescNvDlssFg");
+        AddTech(nvidiaGroup, "nv_smooth_motion", "Smooth Motion", "Smooth Motion", "DescNvSmoothMotion");
+        AddTech(nvidiaGroup, "nv_rt", "Ray Tracing", "RT", "DescNvRt");
+        AddTech(nvidiaGroup, "nv_pt", "Path Tracing", "Path Tracing", "DescNvPt");
+        AddTech(nvidiaGroup, "nv_reflex", "NVIDIA Reflex", "Reflex", "DescNvReflex");
         GpuTechGroups.Add(nvidiaGroup);
 
         var amdGroup = new GpuTechVendorGroupViewModel
         {
             Vendor = GpuVendor.Amd,
             Title = "AMD",
-            Subtitle = "Quét amd_fidelityfx*.dll, ffx_fsr*.dll và trạng thái driver AMD (AFMF / Anti-Lag)",
+            SubtitleKey = "GpuSubAmd",
             AccentBrush = Freeze("#EF4444")
         };
-        AddTech(amdGroup, "amd_fsr", "AMD FSR", "FSR", "Phát hiện amd_fidelityfx*.dll / ffx_fsr*.dll");
-        AddTech(amdGroup, "amd_fg_afmf", "FSR Frame Generation & AFMF (Fluid Motion Frames)", "FSR FG / AFMF", "Phát hiện thư viện FSR Frame Generation hoặc trạng thái driver AFMF");
-        AddTech(amdGroup, "amd_latency", "FSR Latency Reduction", "Anti-Lag", "Phát hiện thư viện / cấu hình driver AMD Anti-Lag");
+        AddTech(amdGroup, "amd_fsr", "AMD FSR", "FSR", "DescAmdFsr");
+        AddTech(amdGroup, "amd_fg_afmf", "FSR Frame Generation & AFMF (Fluid Motion Frames)", "FSR FG / AFMF", "DescAmdFgAfmf");
+        AddTech(amdGroup, "amd_latency", "FSR Latency Reduction", "Anti-Lag", "DescAmdLatency");
         GpuTechGroups.Add(amdGroup);
 
         var intelGroup = new GpuTechVendorGroupViewModel
         {
             Vendor = GpuVendor.Intel,
             Title = "Intel",
-            Subtitle = "Quét libxess.dll, libxess_fg.dll, libxell.dll và DirectX Raytracing",
+            SubtitleKey = "GpuSubIntel",
             AccentBrush = Freeze("#38BDF8")
         };
-        AddTech(intelGroup, "intel_xess_sr", "XeSS Super Resolution", "XeSS", "Phát hiện libxess.dll");
-        AddTech(intelGroup, "intel_xess_fg", "XeSS Frame Generation / Multi-Frame Generation", "XeSS FG", "Phát hiện libxess_fg.dll");
-        AddTech(intelGroup, "intel_xell", "Xe Low Latency (XeLL)", "XeLL", "Phát hiện libxell.dll");
-        AddTech(intelGroup, "intel_rt", "Ray Tracing", "RT", "Phát hiện hỗ trợ DirectX Raytracing (DXR)");
+        AddTech(intelGroup, "intel_xess_sr", "XeSS Super Resolution", "XeSS", "DescIntelXessSr");
+        AddTech(intelGroup, "intel_xess_fg", "XeSS Frame Generation / Multi-Frame Generation", "XeSS FG", "DescIntelXessFg");
+        AddTech(intelGroup, "intel_xell", "Xe Low Latency (XeLL)", "XeLL", "DescIntelXell");
+        AddTech(intelGroup, "intel_rt", "Ray Tracing", "RT", "DescIntelRt");
         GpuTechGroups.Add(intelGroup);
     }
 
-    private void AddTech(GpuTechVendorGroupViewModel group, string id, string name, string badgeText, string description)
+    private void AddTech(GpuTechVendorGroupViewModel group, string id, string name, string badgeText, string descriptionKey)
     {
         group.Items.Add(new GpuTechItemViewModel
         {
             Id = id,
             Name = name,
             BadgeText = badgeText,
-            Description = description,
+            DescriptionKey = descriptionKey,
             Vendor = group.Vendor,
             OnToggleChanged = () =>
             {
@@ -2054,18 +2157,18 @@ public sealed class MainViewModel : ObservableObject
                     .Where(g => g.Vendor == group.Vendor &&
                                 (GpuTechMode == GpuTechMode.AutoAllGpus || g.Id == SelectedPrimaryGpu?.Id))
                     .Select(g => g.Name);
-                group.SupportBadgeText = $"Khả dụng • {string.Join(", ", names)}";
+                group.SupportBadgeText = LocalizationService.Instance.Format("GpuAvailableBadge", string.Join(", ", names));
 
                 foreach (var item in group.Items)
                     SupportedGpuTechItems.Add(item);
             }
             else if (hasOnMachine && GpuTechMode == GpuTechMode.SinglePrimaryGpu)
             {
-                group.SupportBadgeText = "Không thuộc GPU chính đã chọn";
+                group.SupportBadgeText = LocalizationService.Instance["GpuNotPrimaryBadge"];
             }
             else
             {
-                group.SupportBadgeText = "Không có GPU hãng này trên máy";
+                group.SupportBadgeText = LocalizationService.Instance["GpuVendorMissingBadge"];
             }
         }
 
@@ -2315,12 +2418,12 @@ public sealed class MainViewModel : ObservableObject
         return s.ToUpperInvariant();
     }
 
-    private static ColorPreset MakePreset(string name, string hex)
+    private static ColorPreset MakePreset(string nameKey, string hex)
     {
         MetricItem.TryParseHex(hex, out var color);
         var brush = new SolidColorBrush(color);
         brush.Freeze();
-        return new ColorPreset { Name = name, Hex = hex, Brush = brush };
+        return new ColorPreset { NameKey = nameKey, Hex = hex, Brush = brush };
     }
 
     private static SolidColorBrush CreateFrozenBrush(string hex, Color fallback)

@@ -25,9 +25,12 @@ public partial class App : Application
     private WidgetWindow? _widgetWindow;
     private UpdateWindow? _updateWindow;
     private Forms.NotifyIcon? _trayIcon;
+    private Forms.ToolStripMenuItem? _trayOpenItem;
     private Forms.ToolStripMenuItem? _trayLockItem;
     private Forms.ToolStripMenuItem? _trayTopmostItem;
     private Forms.ToolStripMenuItem? _trayVisibilityItem;
+    private Forms.ToolStripMenuItem? _trayResetFpsItem;
+    private Forms.ToolStripMenuItem? _trayExitItem;
     private bool _isExiting;
 
     protected override void OnStartup(StartupEventArgs e)
@@ -38,8 +41,8 @@ public partial class App : Application
         {
             LogCrash(args.Exception);
             MessageBox.Show(
-                $"Đã xảy ra lỗi không mong muốn:\n{args.Exception.Message}",
-                "Theo dõi phần cứng — Lỗi",
+                LocalizationService.Instance.Format("MsgUnexpectedError", args.Exception.Message),
+                LocalizationService.Instance["MsgErrorTitle"],
                 MessageBoxButton.OK,
                 MessageBoxImage.Error);
             args.Handled = true;
@@ -55,8 +58,8 @@ public partial class App : Application
         if (!createdNew)
         {
             MessageBox.Show(
-                "Ứng dụng Theo dõi phần cứng đang chạy sẵn (kiểm tra khay hệ thống hoặc Widget trên màn hình).",
-                "Theo dõi phần cứng",
+                LocalizationService.Instance["MsgAlreadyRunning"],
+                LocalizationService.Instance["AppTitle"],
                 MessageBoxButton.OK,
                 MessageBoxImage.Information);
             Shutdown();
@@ -117,7 +120,7 @@ public partial class App : Application
         _viewModel.UpdateAvailableDetected += release =>
             Dispatcher.BeginInvoke(() => ShowUpdateWindow(release));
         _viewModel.ResetFpsToastRequested += () =>
-            _widgetWindow?.ShowStatusToast("Đã đặt lại bộ đếm FPS (60s)");
+            _widgetWindow?.ShowStatusToast(LocalizationService.Instance["ToastResetFps"]);
 
         // 1. Cảm biến phần cứng mỗi 1 giây
         _hardwareService.SnapshotReady += snapshot =>
@@ -147,6 +150,7 @@ public partial class App : Application
         };
 
         SetupTrayIcon();
+        LocalizationService.Instance.LanguageChanged += () => Dispatcher.BeginInvoke(UpdateTrayMenuState);
 
         if (_viewModel.IsWidgetVisible)
             _widgetWindow.Show();
@@ -164,8 +168,8 @@ public partial class App : Application
                 if (_viewModel == null) return;
                 _viewModel.IsClickThrough = !_viewModel.IsClickThrough;
                 _widgetWindow?.ShowStatusToast(_viewModel.IsClickThrough
-                    ? "Đã khóa Widget (Xuyên chuột) — Ctrl+Shift+L để mở"
-                    : "Đã mở khóa Widget — có thể kéo & co giãn");
+                    ? LocalizationService.Instance["ToastLocked"]
+                    : LocalizationService.Instance["ToastUnlocked"]);
             });
         };
         _hotkeyManager.ResetFpsPressed += () =>
@@ -201,12 +205,12 @@ public partial class App : Application
     {
         var menu = new Forms.ContextMenuStrip();
 
-        var openItem = new Forms.ToolStripMenuItem("Mở bảng điều khiển");
-        openItem.Font = new Font(openItem.Font, System.Drawing.FontStyle.Bold);
-        openItem.Click += (_, _) => Dispatcher.Invoke(ShowSettingsWindow);
-        menu.Items.Add(openItem);
+        _trayOpenItem = new Forms.ToolStripMenuItem();
+        _trayOpenItem.Font = new Font(_trayOpenItem.Font, System.Drawing.FontStyle.Bold);
+        _trayOpenItem.Click += (_, _) => Dispatcher.Invoke(ShowSettingsWindow);
+        menu.Items.Add(_trayOpenItem);
 
-        _trayVisibilityItem = new Forms.ToolStripMenuItem("Ẩn Widget");
+        _trayVisibilityItem = new Forms.ToolStripMenuItem();
         _trayVisibilityItem.Click += (_, _) => Dispatcher.Invoke(() =>
         {
             if (_viewModel != null)
@@ -214,7 +218,7 @@ public partial class App : Application
         });
         menu.Items.Add(_trayVisibilityItem);
 
-        _trayLockItem = new Forms.ToolStripMenuItem("Khóa vị trí (Ctrl + Shift + L)");
+        _trayLockItem = new Forms.ToolStripMenuItem();
         _trayLockItem.Click += (_, _) => Dispatcher.Invoke(() =>
         {
             if (_viewModel != null)
@@ -222,7 +226,7 @@ public partial class App : Application
         });
         menu.Items.Add(_trayLockItem);
 
-        _trayTopmostItem = new Forms.ToolStripMenuItem("Luôn hiện trên ứng dụng khác")
+        _trayTopmostItem = new Forms.ToolStripMenuItem
         {
             CheckOnClick = false
         };
@@ -233,20 +237,19 @@ public partial class App : Application
         });
         menu.Items.Add(_trayTopmostItem);
 
-        var resetFpsItem = new Forms.ToolStripMenuItem("Đặt lại bộ đếm FPS (Ctrl + Shift + R)");
-        resetFpsItem.Click += (_, _) => Dispatcher.Invoke(() => _viewModel?.ResetFpsStats());
-        menu.Items.Add(resetFpsItem);
+        _trayResetFpsItem = new Forms.ToolStripMenuItem();
+        _trayResetFpsItem.Click += (_, _) => Dispatcher.Invoke(() => _viewModel?.ResetFpsStats());
+        menu.Items.Add(_trayResetFpsItem);
 
         menu.Items.Add(new Forms.ToolStripSeparator());
 
-        var exitItem = new Forms.ToolStripMenuItem("Thoát ứng dụng");
-        exitItem.Click += (_, _) => Dispatcher.Invoke(ExitApplication);
-        menu.Items.Add(exitItem);
+        _trayExitItem = new Forms.ToolStripMenuItem();
+        _trayExitItem.Click += (_, _) => Dispatcher.Invoke(ExitApplication);
+        menu.Items.Add(_trayExitItem);
 
         _trayIcon = new Forms.NotifyIcon
         {
             Icon = CreateAppIcon(),
-            Text = "Theo dõi phần cứng Windows 11",
             ContextMenuStrip = menu,
             Visible = true
         };
@@ -258,17 +261,34 @@ public partial class App : Application
     private void UpdateTrayMenuState()
     {
         if (_viewModel == null) return;
+        var loc = LocalizationService.Instance;
+
+        if (_trayOpenItem != null)
+            _trayOpenItem.Text = loc["TrayOpenSettings"];
 
         if (_trayVisibilityItem != null)
-            _trayVisibilityItem.Text = _viewModel.IsWidgetVisible ? "Ẩn Widget" : "Hiện Widget";
+            _trayVisibilityItem.Text = _viewModel.IsWidgetVisible ? loc["BtnHideWidget"] : loc["BtnShowWidget"];
 
         if (_trayLockItem != null)
-            _trayLockItem.Text = _viewModel.IsClickThrough
-                ? "Mở khóa vị trí (Ctrl + Shift + L)"
-                : "Khóa vị trí - Xuyên chuột (Ctrl + Shift + L)";
+            _trayLockItem.Text = _viewModel.IsClickThrough ? loc["TrayUnlock"] : loc["TrayLock"];
 
         if (_trayTopmostItem != null)
+        {
+            _trayTopmostItem.Text = loc["TrayTopmost"];
             _trayTopmostItem.Checked = _viewModel.IsWidgetTopmost;
+        }
+
+        if (_trayResetFpsItem != null)
+            _trayResetFpsItem.Text = loc["TrayResetFps"];
+
+        if (_trayExitItem != null)
+            _trayExitItem.Text = loc["BtnExitApp"];
+
+        if (_trayIcon != null)
+        {
+            string appTitle = loc["AppTitle"];
+            _trayIcon.Text = appTitle.Length > 63 ? appTitle[..63] : appTitle;
+        }
     }
 
     private static Icon CreateAppIcon()

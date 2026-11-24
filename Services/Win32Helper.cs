@@ -330,7 +330,7 @@ public static class Win32Helper
         string? exePath = Environment.ProcessPath;
         if (string.IsNullOrWhiteSpace(exePath))
         {
-            errorMessage = "Không xác định được đường dẫn tệp thực thi.";
+            errorMessage = LocalizationService.Instance["Win32ExePathMissing"];
             return false;
         }
 

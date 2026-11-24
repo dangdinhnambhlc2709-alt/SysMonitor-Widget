@@ -14,10 +14,21 @@ namespace WinHardwareMonitor.Services;
 
 public readonly record struct FpsGraphPoint(double BaseFps, double? FrameGenFps);
 
+public enum PresentMonStatusKind
+{
+    Missing,
+    Stopped,
+    Error,
+    Waiting,
+    Tracking
+}
+
 public sealed class FpsSnapshot
 {
     public bool IsPresentMonAvailable { get; init; }
     public bool IsPresentMonRunning { get; init; }
+    public PresentMonStatusKind StatusKind { get; init; }
+    public string StatusErrorDetail { get; init; } = string.Empty;
     public string StatusText { get; init; } = string.Empty;
     public bool IsGameActive { get; init; }
     public string ActiveGameName { get; init; } = string.Empty;
@@ -120,7 +131,7 @@ public sealed class PresentMonService : IDisposable
         }
         else
         {
-            _lastError = "Chưa tìm thấy tools\\PresentMon.exe";
+            _lastError = string.Empty;
         }
 
         _publishTask = Task.Run(async () =>
@@ -183,7 +194,7 @@ public sealed class PresentMonService : IDisposable
             }
 
             if (string.IsNullOrWhiteSpace(downloadUrl))
-                return (false, "Không tìm thấy tệp PresentMon 2.x x64 trên GitHub Releases.");
+                return (false, LocalizationService.Instance["PmErrNotFound"]);
 
             string targetDir = Path.Combine(
                 Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
@@ -202,11 +213,11 @@ public sealed class PresentMonService : IDisposable
             if (_cts != null && !_cts.IsCancellationRequested)
                 StartPresentMonProcess(_cts.Token);
 
-            return (true, $"Đã tải thành công {assetName} và khởi động PresentMon.");
+            return (true, LocalizationService.Instance.Format("PmDownloadSuccess", assetName ?? "PresentMon.exe"));
         }
         catch (Exception ex)
         {
-            return (false, $"Lỗi khi tải PresentMon: {ex.Message}");
+            return (false, LocalizationService.Instance.Format("PmDownloadFailed", ex.Message));
         }
     }
 
@@ -249,7 +260,7 @@ public sealed class PresentMonService : IDisposable
         }
         catch (Exception ex)
         {
-            _lastError = $"Không thể giải nén PresentMon: {ex.Message}";
+            _lastError = LocalizationService.Instance.Format("PmExtractFailed", ex.Message);
         }
 
         return string.Empty;
@@ -276,7 +287,7 @@ public sealed class PresentMonService : IDisposable
             _presentMonProcess = Process.Start(psi);
             if (_presentMonProcess == null)
             {
-                _lastError = "Không khởi chạy được tiến trình PresentMon.";
+                _lastError = LocalizationService.Instance["PmStartFailed"];
                 _isRunning = false;
                 return;
             }
@@ -535,11 +546,14 @@ public sealed class PresentMonService : IDisposable
                     _graphHistory.Clear();
                 }
 
+                var statusKind = GetStatusKind(false);
                 return new FpsSnapshot
                 {
                     IsPresentMonAvailable = IsPresentMonAvailable,
                     IsPresentMonRunning = _isRunning,
-                    StatusText = BuildStatusText(false, string.Empty, null),
+                    StatusKind = statusKind,
+                    StatusErrorDetail = _lastError,
+                    StatusText = FormatStatusText(statusKind, _lastError, string.Empty, null),
                     IsGameActive = false,
                     ActiveGameName = string.Empty,
                     GraphHistory = Array.Empty<FpsGraphPoint>()
@@ -562,11 +576,14 @@ public sealed class PresentMonService : IDisposable
             var allWindowSamples = targetBuffer.Samples.ToList();
             if (allWindowSamples.Count == 0)
             {
+                var statusKind = GetStatusKind(false);
                 return new FpsSnapshot
                 {
                     IsPresentMonAvailable = IsPresentMonAvailable,
                     IsPresentMonRunning = _isRunning,
-                    StatusText = BuildStatusText(false, string.Empty, null),
+                    StatusKind = statusKind,
+                    StatusErrorDetail = _lastError,
+                    StatusText = FormatStatusText(statusKind, _lastError, string.Empty, null),
                     IsGameActive = false
                 };
             }
@@ -646,11 +663,14 @@ public sealed class PresentMonService : IDisposable
             while (_graphHistory.Count > MaxGraphPoints)
                 _graphHistory.Dequeue();
 
+            var activeKind = GetStatusKind(true);
             return new FpsSnapshot
             {
                 IsPresentMonAvailable = IsPresentMonAvailable,
                 IsPresentMonRunning = _isRunning,
-                StatusText = BuildStatusText(true, targetName, fgSource),
+                StatusKind = activeKind,
+                StatusErrorDetail = _lastError,
+                StatusText = FormatStatusText(activeKind, _lastError, targetName, fgSource),
                 IsGameActive = true,
                 ActiveGameName = targetName,
                 BaseFps = baseFps,
@@ -702,23 +722,28 @@ public sealed class PresentMonService : IDisposable
         return displayedCount >= 5 ? displayedCount / RecentFpsWindowSeconds : null;
     }
 
-    private string BuildStatusText(bool isGameActive, string gameName, string? fgSource)
+    private PresentMonStatusKind GetStatusKind(bool isGameActive)
     {
         if (!IsPresentMonAvailable)
-            return "Chưa có PresentMon.exe — hãy đặt vào thư mục tools\\PresentMon.exe hoặc bấm Tải tự động";
-
+            return PresentMonStatusKind.Missing;
         if (!_isRunning)
+            return string.IsNullOrWhiteSpace(_lastError) ? PresentMonStatusKind.Stopped : PresentMonStatusKind.Error;
+        return isGameActive ? PresentMonStatusKind.Tracking : PresentMonStatusKind.Waiting;
+    }
+
+    public static string FormatStatusText(PresentMonStatusKind kind, string errorDetail, string gameName, string? fgSource)
+    {
+        var loc = LocalizationService.Instance;
+        return kind switch
         {
-            return string.IsNullOrWhiteSpace(_lastError)
-                ? "PresentMon chưa chạy (cần quyền Quản trị viên để đọc ETW)"
-                : $"PresentMon dừng: {_lastError}";
-        }
-
-        if (!isGameActive)
-            return "PresentMon 2.x đang chạy (ETW an toàn) • Chờ game/ứng dụng 3D ở cửa sổ trên cùng...";
-
-        string fgPart = string.IsNullOrWhiteSpace(fgSource) ? string.Empty : $" • Phát hiện {fgSource}";
-        return $"Đang theo dõi: {gameName}{fgPart}";
+            PresentMonStatusKind.Missing => loc["PmStatusMissing"],
+            PresentMonStatusKind.Stopped => loc["PmStatusStopped"],
+            PresentMonStatusKind.Error => loc.Format("PmStatusError", errorDetail),
+            PresentMonStatusKind.Tracking => string.IsNullOrWhiteSpace(fgSource)
+                ? loc.Format("PmStatusTracking", gameName)
+                : loc.Format("PmStatusTrackingFg", gameName, fgSource),
+            _ => loc["PmStatusWaiting"]
+        };
     }
 
     private void StopPresentMonProcess()

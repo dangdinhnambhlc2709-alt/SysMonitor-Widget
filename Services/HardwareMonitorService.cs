@@ -44,11 +44,17 @@ public sealed class HardwareMonitorService : IDisposable
     {
         public int DiskIndex { get; init; }
         public string ModelName { get; init; } = string.Empty;
+        public bool HasRealModelName { get; init; }
         public string DriveLetters { get; init; } = string.Empty;
-        public string ShortTag { get; init; } = string.Empty;
         public IHardware? LhmHardware { get; set; }
         public PerformanceCounter? ReadCounter { get; set; }
         public PerformanceCounter? WriteCounter { get; set; }
+
+        public string GetLocalizedModelName() => HasRealModelName
+            ? ModelName
+            : LocalizationService.Instance.Format("DiskPhysicalFallback", DiskIndex);
+
+        public string GetLocalizedShortTag() => BuildLocalizedDiskTag(DiskIndex, DriveLetters);
 
         public void Dispose()
         {
@@ -175,58 +181,62 @@ public sealed class HardwareMonitorService : IDisposable
 
         // 1. CPU
         var cpuHw = hardwareList.FirstOrDefault(h => h.HardwareType == HardwareType.Cpu);
-        string cpuName = CleanHardwareName(cpuHw?.Name, "Bộ xử lý trung tâm");
+        string rawCpuName = CleanHardwareName(cpuHw?.Name, string.Empty);
+        Func<string> cpuGroupTitle = () => LocalizationService.Instance["GrpCpu"];
+        Func<string> cpuGroupSub = () => string.IsNullOrWhiteSpace(rawCpuName)
+            ? LocalizationService.Instance["GrpCpuFallbackSub"]
+            : rawCpuName;
 
         _discoveredMetrics.Add(new MetricItem
         {
             Id = "cpu_load",
             Category = MetricCategory.Cpu,
             GroupKey = "cpu",
-            GroupTitle = "CPU",
-            GroupSubtitle = cpuName,
-            Title = "Tải CPU",
-            ShortLabel = "CPU",
+            GroupTitleProvider = cpuGroupTitle,
+            GroupSubtitleProvider = cpuGroupSub,
+            TitleProvider = () => LocalizationService.Instance["M_CpuLoad_Title"],
+            ShortLabelProvider = () => LocalizationService.Instance["M_CpuLoad_Short"],
             DefaultSymbol = SymbolRegular.DeveloperBoard24,
-            Description = "Phần trăm sử dụng tổng thể"
+            DescriptionProvider = () => LocalizationService.Instance["M_CpuLoad_Desc"]
         });
         _discoveredMetrics.Add(new MetricItem
         {
             Id = "cpu_temp",
             Category = MetricCategory.Cpu,
             GroupKey = "cpu",
-            GroupTitle = "CPU",
-            GroupSubtitle = cpuName,
-            Title = "Nhiệt độ CPU",
-            ShortLabel = "CPU °C",
+            GroupTitleProvider = cpuGroupTitle,
+            GroupSubtitleProvider = cpuGroupSub,
+            TitleProvider = () => LocalizationService.Instance["M_CpuTemp_Title"],
+            ShortLabelProvider = () => LocalizationService.Instance["M_CpuTemp_Short"],
             DefaultSymbol = SymbolRegular.Temperature24,
-            Description = "Nhiệt độ gói / nhân (°C)"
+            DescriptionProvider = () => LocalizationService.Instance["M_CpuTemp_Desc"]
         });
         _discoveredMetrics.Add(new MetricItem
         {
             Id = "cpu_clock",
             Category = MetricCategory.Cpu,
             GroupKey = "cpu",
-            GroupTitle = "CPU",
-            GroupSubtitle = cpuName,
-            Title = "Xung nhịp CPU",
-            ShortLabel = "CPU GHz",
+            GroupTitleProvider = cpuGroupTitle,
+            GroupSubtitleProvider = cpuGroupSub,
+            TitleProvider = () => LocalizationService.Instance["M_CpuClock_Title"],
+            ShortLabelProvider = () => LocalizationService.Instance["M_CpuClock_Short"],
             DefaultSymbol = SymbolRegular.TopSpeed24,
-            Description = "Tần số hoạt động trung bình (GHz)"
+            DescriptionProvider = () => LocalizationService.Instance["M_CpuClock_Desc"]
         });
         _discoveredMetrics.Add(new MetricItem
         {
             Id = "cpu_power",
             Category = MetricCategory.Cpu,
             GroupKey = "cpu",
-            GroupTitle = "CPU",
-            GroupSubtitle = cpuName,
-            Title = "Công suất CPU",
-            ShortLabel = "CPU W",
+            GroupTitleProvider = cpuGroupTitle,
+            GroupSubtitleProvider = cpuGroupSub,
+            TitleProvider = () => LocalizationService.Instance["M_CpuPower_Title"],
+            ShortLabelProvider = () => LocalizationService.Instance["M_CpuPower_Short"],
             DefaultSymbol = SymbolRegular.Flash24,
-            Description = "Điện năng tiêu thụ (W)"
+            DescriptionProvider = () => LocalizationService.Instance["M_CpuPower_Desc"]
         });
 
-        // 2. GPUs (Hỗ trợ tách biệt card tích hợp và card rời)
+        // 2. GPUs (Hỗ trợ tách biệt card tích hợp và card rời — dịch động theo ngôn ngữ)
         var gpuHardwares = hardwareList
             .Where(h => h.HardwareType is HardwareType.GpuNvidia or HardwareType.GpuAmd or HardwareType.GpuIntel)
             .ToList();
@@ -240,38 +250,61 @@ public sealed class HardwareMonitorService : IDisposable
         int integratedCount = classifiedGpus.Count(x => !x.IsDiscrete);
         int discreteIdx = 0;
         int integratedIdx = 0;
+        bool isSingleGpu = classifiedGpus.Count == 1;
 
         for (int i = 0; i < classifiedGpus.Count; i++)
         {
             var (hw, vendor, isDiscrete) = classifiedGpus[i];
             string shortName = CleanHardwareName(hw.Name, $"GPU {i + 1}");
 
-            string groupTitle;
-            string shortPrefix;
-            string vramShort;
+            string suffix = string.Empty;
+            if (!isSingleGpu)
+            {
+                if (isDiscrete)
+                {
+                    discreteIdx++;
+                    suffix = discreteCount > 1 ? $" {discreteIdx}" : string.Empty;
+                }
+                else
+                {
+                    integratedIdx++;
+                    suffix = integratedCount > 1 ? $" {integratedIdx}" : string.Empty;
+                }
+            }
 
-            if (classifiedGpus.Count == 1)
+            bool capturedDiscrete = isDiscrete;
+            string capturedSuffix = suffix;
+            string capturedShortName = shortName;
+
+            Func<string> gpuGroupTitle = () =>
             {
-                groupTitle = isDiscrete ? "GPU (Card rời)" : "GPU (Card tích hợp)";
-                shortPrefix = "GPU";
-                vramShort = "VRAM";
-            }
-            else if (isDiscrete)
+                var loc = LocalizationService.Instance;
+                if (isSingleGpu)
+                    return capturedDiscrete ? loc["GrpGpuSingleDiscrete"] : loc["GrpGpuSingleIntegrated"];
+                return capturedDiscrete
+                    ? loc.Format("GrpGpuDiscrete", capturedSuffix)
+                    : loc.Format("GrpGpuIntegrated", capturedSuffix);
+            };
+
+            Func<string> gpuShortPrefix = () =>
             {
-                discreteIdx++;
-                string suffix = discreteCount > 1 ? $" {discreteIdx}" : string.Empty;
-                groupTitle = $"GPU rời{suffix}";
-                shortPrefix = $"GPU rời{suffix}";
-                vramShort = $"VRAM rời{suffix}";
-            }
-            else
+                var loc = LocalizationService.Instance;
+                if (isSingleGpu)
+                    return loc["ShortGpuSingle"];
+                return capturedDiscrete
+                    ? loc.Format("ShortGpuDiscrete", capturedSuffix)
+                    : loc.Format("ShortGpuIntegrated", capturedSuffix);
+            };
+
+            Func<string> gpuVramShort = () =>
             {
-                integratedIdx++;
-                string suffix = integratedCount > 1 ? $" {integratedIdx}" : string.Empty;
-                groupTitle = $"GPU tích hợp{suffix}";
-                shortPrefix = $"iGPU{suffix}";
-                vramShort = $"VRAM iGPU{suffix}";
-            }
+                var loc = LocalizationService.Instance;
+                if (isSingleGpu)
+                    return loc["ShortVramSingle"];
+                return capturedDiscrete
+                    ? loc.Format("ShortVramDiscrete", capturedSuffix)
+                    : loc.Format("ShortVramIntegrated", capturedSuffix);
+            };
 
             var desc = new GpuDescriptor
             {
@@ -280,8 +313,8 @@ public sealed class HardwareMonitorService : IDisposable
                 Vendor = vendor,
                 IsDiscrete = isDiscrete,
                 ShortName = shortName,
-                ShortPrefix = shortPrefix,
-                GroupTitle = groupTitle
+                ShortPrefix = gpuShortPrefix(),
+                GroupTitle = gpuGroupTitle()
             };
             _gpus.Add(desc);
 
@@ -299,48 +332,48 @@ public sealed class HardwareMonitorService : IDisposable
                 Id = $"gpu_{i}_load",
                 Category = MetricCategory.Gpu,
                 GroupKey = groupKey,
-                GroupTitle = groupTitle,
-                GroupSubtitle = shortName,
-                Title = $"Tải {shortPrefix}",
-                ShortLabel = shortPrefix,
+                GroupTitleProvider = gpuGroupTitle,
+                GroupSubtitleProvider = () => capturedShortName,
+                TitleProvider = () => LocalizationService.Instance.Format("M_GpuLoad_Title", gpuShortPrefix()),
+                ShortLabelProvider = gpuShortPrefix,
                 DefaultSymbol = SymbolRegular.Games24,
-                Description = "Phần trăm tải nhân đồ họa"
+                DescriptionProvider = () => LocalizationService.Instance["M_GpuLoad_Desc"]
             });
             _discoveredMetrics.Add(new MetricItem
             {
                 Id = $"gpu_{i}_temp",
                 Category = MetricCategory.Gpu,
                 GroupKey = groupKey,
-                GroupTitle = groupTitle,
-                GroupSubtitle = shortName,
-                Title = $"Nhiệt độ {shortPrefix}",
-                ShortLabel = $"{shortPrefix} °C",
+                GroupTitleProvider = gpuGroupTitle,
+                GroupSubtitleProvider = () => capturedShortName,
+                TitleProvider = () => LocalizationService.Instance.Format("M_GpuTemp_Title", gpuShortPrefix()),
+                ShortLabelProvider = () => LocalizationService.Instance.Format("M_GpuTemp_Short", gpuShortPrefix()),
                 DefaultSymbol = SymbolRegular.Temperature24,
-                Description = "Nhiệt độ nhân đồ họa (°C)"
+                DescriptionProvider = () => LocalizationService.Instance["M_GpuTemp_Desc"]
             });
             _discoveredMetrics.Add(new MetricItem
             {
                 Id = $"gpu_{i}_vram",
                 Category = MetricCategory.Gpu,
                 GroupKey = groupKey,
-                GroupTitle = groupTitle,
-                GroupSubtitle = shortName,
-                Title = $"VRAM {shortPrefix}",
-                ShortLabel = vramShort,
+                GroupTitleProvider = gpuGroupTitle,
+                GroupSubtitleProvider = () => capturedShortName,
+                TitleProvider = () => LocalizationService.Instance.Format("M_GpuVram_Title", gpuShortPrefix()),
+                ShortLabelProvider = gpuVramShort,
                 DefaultSymbol = SymbolRegular.DesktopPulse24,
-                Description = "Bộ nhớ đồ họa đang dùng"
+                DescriptionProvider = () => LocalizationService.Instance["M_GpuVram_Desc"]
             });
             _discoveredMetrics.Add(new MetricItem
             {
                 Id = $"gpu_{i}_power",
                 Category = MetricCategory.Gpu,
                 GroupKey = groupKey,
-                GroupTitle = groupTitle,
-                GroupSubtitle = shortName,
-                Title = $"Công suất {shortPrefix}",
-                ShortLabel = $"{shortPrefix} W",
+                GroupTitleProvider = gpuGroupTitle,
+                GroupSubtitleProvider = () => capturedShortName,
+                TitleProvider = () => LocalizationService.Instance.Format("M_GpuPower_Title", gpuShortPrefix()),
+                ShortLabelProvider = () => LocalizationService.Instance.Format("M_GpuPower_Short", gpuShortPrefix()),
                 DefaultSymbol = SymbolRegular.Flash24,
-                Description = "Điện năng tiêu thụ (W)"
+                DescriptionProvider = () => LocalizationService.Instance["M_GpuPower_Desc"]
             });
         }
 
@@ -349,187 +382,200 @@ public sealed class HardwareMonitorService : IDisposable
 
         if (_gpus.Count == 0)
         {
+            Func<string> noGpuTitle = () => LocalizationService.Instance["GrpGpuNone"];
+            Func<string> noGpuSub = () => LocalizationService.Instance["GrpGpuNoneSub"];
+            Func<string> singleGpuPrefix = () => LocalizationService.Instance["ShortGpuSingle"];
+
             _discoveredMetrics.Add(new MetricItem
             {
                 Id = "gpu_0_load",
                 Category = MetricCategory.Gpu,
                 GroupKey = "gpu_0",
-                GroupTitle = "GPU",
-                GroupSubtitle = "Không phát hiện cảm biến GPU",
-                Title = "Tải GPU",
-                ShortLabel = "GPU",
+                GroupTitleProvider = noGpuTitle,
+                GroupSubtitleProvider = noGpuSub,
+                TitleProvider = () => LocalizationService.Instance.Format("M_GpuLoad_Title", singleGpuPrefix()),
+                ShortLabelProvider = singleGpuPrefix,
                 DefaultSymbol = SymbolRegular.Games24,
-                Description = "Phần trăm tải nhân đồ họa"
+                DescriptionProvider = () => LocalizationService.Instance["M_GpuLoad_Desc"]
             });
             _discoveredMetrics.Add(new MetricItem
             {
                 Id = "gpu_0_temp",
                 Category = MetricCategory.Gpu,
                 GroupKey = "gpu_0",
-                GroupTitle = "GPU",
-                GroupSubtitle = "Không phát hiện cảm biến GPU",
-                Title = "Nhiệt độ GPU",
-                ShortLabel = "GPU °C",
+                GroupTitleProvider = noGpuTitle,
+                GroupSubtitleProvider = noGpuSub,
+                TitleProvider = () => LocalizationService.Instance.Format("M_GpuTemp_Title", singleGpuPrefix()),
+                ShortLabelProvider = () => LocalizationService.Instance.Format("M_GpuTemp_Short", singleGpuPrefix()),
                 DefaultSymbol = SymbolRegular.Temperature24,
-                Description = "Nhiệt độ nhân đồ họa (°C)"
+                DescriptionProvider = () => LocalizationService.Instance["M_GpuTemp_Desc"]
             });
             _discoveredMetrics.Add(new MetricItem
             {
                 Id = "gpu_0_vram",
                 Category = MetricCategory.Gpu,
                 GroupKey = "gpu_0",
-                GroupTitle = "GPU",
-                GroupSubtitle = "Không phát hiện cảm biến GPU",
-                Title = "VRAM GPU",
-                ShortLabel = "VRAM",
+                GroupTitleProvider = noGpuTitle,
+                GroupSubtitleProvider = noGpuSub,
+                TitleProvider = () => LocalizationService.Instance.Format("M_GpuVram_Title", singleGpuPrefix()),
+                ShortLabelProvider = () => LocalizationService.Instance["ShortVramSingle"],
                 DefaultSymbol = SymbolRegular.DesktopPulse24,
-                Description = "Bộ nhớ đồ họa đang dùng"
+                DescriptionProvider = () => LocalizationService.Instance["M_GpuVram_Desc"]
             });
             _discoveredMetrics.Add(new MetricItem
             {
                 Id = "gpu_0_power",
                 Category = MetricCategory.Gpu,
                 GroupKey = "gpu_0",
-                GroupTitle = "GPU",
-                GroupSubtitle = "Không phát hiện cảm biến GPU",
-                Title = "Công suất GPU",
-                ShortLabel = "GPU W",
+                GroupTitleProvider = noGpuTitle,
+                GroupSubtitleProvider = noGpuSub,
+                TitleProvider = () => LocalizationService.Instance.Format("M_GpuPower_Title", singleGpuPrefix()),
+                ShortLabelProvider = () => LocalizationService.Instance.Format("M_GpuPower_Short", singleGpuPrefix()),
                 DefaultSymbol = SymbolRegular.Flash24,
-                Description = "Điện năng tiêu thụ (W)"
+                DescriptionProvider = () => LocalizationService.Instance["M_GpuPower_Desc"]
             });
         }
 
         // 3. RAM
-        string ramSubtitle = Win32Helper.TryGetPhysicalMemory(out _, out double totalGb, out _)
-            ? $"Bộ nhớ hệ thống ({totalGb:F0} GB)"
-            : "Bộ nhớ hệ thống";
+        bool hasRamSize = Win32Helper.TryGetPhysicalMemory(out _, out double totalGb, out _);
+        string totalRamStr = $"{totalGb:F0}";
+        Func<string> ramGroupTitle = () => LocalizationService.Instance["GrpRam"];
+        Func<string> ramGroupSub = () => hasRamSize
+            ? LocalizationService.Instance.Format("GrpRamSubSize", totalRamStr)
+            : LocalizationService.Instance["GrpRamSub"];
 
         _discoveredMetrics.Add(new MetricItem
         {
             Id = "ram_usage",
             Category = MetricCategory.Ram,
             GroupKey = "ram",
-            GroupTitle = "RAM",
-            GroupSubtitle = ramSubtitle,
-            Title = "RAM đang dùng (GB & %)",
-            ShortLabel = "RAM",
+            GroupTitleProvider = ramGroupTitle,
+            GroupSubtitleProvider = ramGroupSub,
+            TitleProvider = () => LocalizationService.Instance["M_RamUsage_Title"],
+            ShortLabelProvider = () => LocalizationService.Instance["M_RamUsage_Short"],
             DefaultSymbol = SymbolRegular.Ram20,
-            Description = "Dung lượng đã dùng / tổng và phần trăm"
+            DescriptionProvider = () => LocalizationService.Instance["M_RamUsage_Desc"]
         });
         _discoveredMetrics.Add(new MetricItem
         {
             Id = "ram_percent",
             Category = MetricCategory.Ram,
             GroupKey = "ram",
-            GroupTitle = "RAM",
-            GroupSubtitle = ramSubtitle,
-            Title = "Phần trăm RAM",
-            ShortLabel = "RAM %",
+            GroupTitleProvider = ramGroupTitle,
+            GroupSubtitleProvider = ramGroupSub,
+            TitleProvider = () => LocalizationService.Instance["M_RamPercent_Title"],
+            ShortLabelProvider = () => LocalizationService.Instance["M_RamPercent_Short"],
             DefaultSymbol = SymbolRegular.Memory16,
-            Description = "Chỉ hiển thị tỷ lệ phần trăm gọn"
+            DescriptionProvider = () => LocalizationService.Instance["M_RamPercent_Desc"]
         });
 
         // 4. Mạng
+        Func<string> netGroupTitle = () => LocalizationService.Instance["GrpNetwork"];
+        Func<string> netGroupSub = () => LocalizationService.Instance["GrpNetworkSub"];
+
         _discoveredMetrics.Add(new MetricItem
         {
             Id = "net_down",
             Category = MetricCategory.Network,
             GroupKey = "network",
-            GroupTitle = "Mạng",
-            GroupSubtitle = "Lưu lượng thời gian thực",
-            Title = "Tốc độ tải xuống",
-            ShortLabel = "Tải xuống",
+            GroupTitleProvider = netGroupTitle,
+            GroupSubtitleProvider = netGroupSub,
+            TitleProvider = () => LocalizationService.Instance["M_NetDown_Title"],
+            ShortLabelProvider = () => LocalizationService.Instance["M_NetDown_Short"],
             DefaultSymbol = SymbolRegular.ArrowDownload28,
-            Description = "Tốc độ nhận dữ liệu (Download)"
+            DescriptionProvider = () => LocalizationService.Instance["M_NetDown_Desc"]
         });
         _discoveredMetrics.Add(new MetricItem
         {
             Id = "net_up",
             Category = MetricCategory.Network,
             GroupKey = "network",
-            GroupTitle = "Mạng",
-            GroupSubtitle = "Lưu lượng thời gian thực",
-            Title = "Tốc độ tải lên",
-            ShortLabel = "Tải lên",
+            GroupTitleProvider = netGroupTitle,
+            GroupSubtitleProvider = netGroupSub,
+            TitleProvider = () => LocalizationService.Instance["M_NetUp_Title"],
+            ShortLabelProvider = () => LocalizationService.Instance["M_NetUp_Short"],
             DefaultSymbol = SymbolRegular.ArrowUpload24,
-            Description = "Tốc độ gửi dữ liệu (Upload)"
+            DescriptionProvider = () => LocalizationService.Instance["M_NetUp_Desc"]
         });
 
         // 5. Ổ cứng (Tổng tất cả ổ + từng ổ vật lý)
         DiscoverStorageMetrics(hardwareList);
 
         // 6. FPS & Hiệu năng game (Intel PresentMon 2.x ETW — không chèn DLL, an toàn Anti-Cheat)
+        Func<string> fpsGroupTitle = () => LocalizationService.Instance["GrpFps"];
+        Func<string> fpsGroupSub = () => LocalizationService.Instance["GrpFpsSub"];
+
         _discoveredMetrics.Add(new MetricItem
         {
             Id = "fps_base",
             Category = MetricCategory.Fps,
             GroupKey = "fps",
-            GroupTitle = "FPS & Hiệu năng game",
-            GroupSubtitle = "Intel PresentMon 2.x (ETW an toàn Anti-Cheat, cửa sổ trượt 60s)",
-            Title = "FPS gốc",
-            ShortLabel = "FPS",
+            GroupTitleProvider = fpsGroupTitle,
+            GroupSubtitleProvider = fpsGroupSub,
+            TitleProvider = () => LocalizationService.Instance["M_FpsBase_Title"],
+            ShortLabelProvider = () => LocalizationService.Instance["M_FpsBase_Short"],
             DefaultSymbol = SymbolRegular.Games24,
-            Description = "Khung hình thực do game kết xuất (Base FPS)"
+            DescriptionProvider = () => LocalizationService.Instance["M_FpsBase_Desc"]
         });
         _discoveredMetrics.Add(new MetricItem
         {
             Id = "fps_framegen",
             Category = MetricCategory.Fps,
             GroupKey = "fps",
-            GroupTitle = "FPS & Hiệu năng game",
-            GroupSubtitle = "Intel PresentMon 2.x (ETW an toàn Anti-Cheat, cửa sổ trượt 60s)",
-            Title = "FPS FrameGen",
-            ShortLabel = "FPS FG",
+            GroupTitleProvider = fpsGroupTitle,
+            GroupSubtitleProvider = fpsGroupSub,
+            TitleProvider = () => LocalizationService.Instance["M_FpsFg_Title"],
+            ShortLabelProvider = () => LocalizationService.Instance["M_FpsFg_Short"],
             DefaultSymbol = SymbolRegular.TopSpeed24,
-            Description = "Khung hình hiển thị tạo thêm (DLSS/FSR/XeSS FG, Lossless Scaling)"
+            DescriptionProvider = () => LocalizationService.Instance["M_FpsFg_Desc"]
         });
         _discoveredMetrics.Add(new MetricItem
         {
             Id = "fps_avg",
             Category = MetricCategory.Fps,
             GroupKey = "fps",
-            GroupTitle = "FPS & Hiệu năng game",
-            GroupSubtitle = "Intel PresentMon 2.x (ETW an toàn Anti-Cheat, cửa sổ trượt 60s)",
-            Title = "FPS trung bình",
-            ShortLabel = "Avg FPS",
+            GroupTitleProvider = fpsGroupTitle,
+            GroupSubtitleProvider = fpsGroupSub,
+            TitleProvider = () => LocalizationService.Instance["M_FpsAvg_Title"],
+            ShortLabelProvider = () => LocalizationService.Instance["M_FpsAvg_Short"],
             DefaultSymbol = SymbolRegular.Gauge24,
-            Description = "Tốc độ khung hình trung bình (60 giây gần nhất)"
+            DescriptionProvider = () => LocalizationService.Instance["M_FpsAvg_Desc"]
         });
         _discoveredMetrics.Add(new MetricItem
         {
             Id = "fps_1low",
             Category = MetricCategory.Fps,
             GroupKey = "fps",
-            GroupTitle = "FPS & Hiệu năng game",
-            GroupSubtitle = "Intel PresentMon 2.x (ETW an toàn Anti-Cheat, cửa sổ trượt 60s)",
-            Title = "1% Low FPS",
-            ShortLabel = "1% Low",
+            GroupTitleProvider = fpsGroupTitle,
+            GroupSubtitleProvider = fpsGroupSub,
+            TitleProvider = () => LocalizationService.Instance["M_Fps1Low_Title"],
+            ShortLabelProvider = () => LocalizationService.Instance["M_Fps1Low_Short"],
             DefaultSymbol = SymbolRegular.DataUsage24,
-            Description = "Mức tụt khung hình 1% thấp nhất (độ mượt)"
+            DescriptionProvider = () => LocalizationService.Instance["M_Fps1Low_Desc"]
         });
         _discoveredMetrics.Add(new MetricItem
         {
             Id = "fps_01low",
             Category = MetricCategory.Fps,
             GroupKey = "fps",
-            GroupTitle = "FPS & Hiệu năng game",
-            GroupSubtitle = "Intel PresentMon 2.x (ETW an toàn Anti-Cheat, cửa sổ trượt 60s)",
-            Title = "0.1% Low FPS",
-            ShortLabel = "0.1% Low",
+            GroupTitleProvider = fpsGroupTitle,
+            GroupSubtitleProvider = fpsGroupSub,
+            TitleProvider = () => LocalizationService.Instance["M_Fps01Low_Title"],
+            ShortLabelProvider = () => LocalizationService.Instance["M_Fps01Low_Short"],
             DefaultSymbol = SymbolRegular.ClockAlarm24,
-            Description = "Mức khựng sâu 0.1% thấp nhất (stutter)"
+            DescriptionProvider = () => LocalizationService.Instance["M_Fps01Low_Desc"]
         });
         _discoveredMetrics.Add(new MetricItem
         {
             Id = "fps_graph",
             Category = MetricCategory.Fps,
             GroupKey = "fps",
-            GroupTitle = "FPS & Hiệu năng game",
-            GroupSubtitle = "Intel PresentMon 2.x (ETW an toàn Anti-Cheat, cửa sổ trượt 60s)",
-            Title = "Đồ thị FPS",
-            ShortLabel = "Đồ thị FPS",
+            GroupTitleProvider = fpsGroupTitle,
+            GroupSubtitleProvider = fpsGroupSub,
+            TitleProvider = () => LocalizationService.Instance["M_FpsGraph_Title"],
+            ShortLabelProvider = () => LocalizationService.Instance["M_FpsGraph_Short"],
             DefaultSymbol = SymbolRegular.ChartMultiple24,
-            Description = "Biểu đồ đường FPS gốc & FrameGen thời gian thực",
+            DescriptionProvider = () => LocalizationService.Instance["M_FpsGraph_Desc"],
             IsGraphMetric = true
         });
         _discoveredMetrics.Add(new MetricItem
@@ -537,12 +583,12 @@ public sealed class HardwareMonitorService : IDisposable
             Id = "gpu_tech_badges",
             Category = MetricCategory.Fps,
             GroupKey = "fps",
-            GroupTitle = "FPS & Hiệu năng game",
-            GroupSubtitle = "Intel PresentMon 2.x (ETW an toàn Anti-Cheat, cửa sổ trượt 60s)",
-            Title = "Huy hiệu Công nghệ GPU",
-            ShortLabel = "GPU Tech",
+            GroupTitleProvider = fpsGroupTitle,
+            GroupSubtitleProvider = fpsGroupSub,
+            TitleProvider = () => LocalizationService.Instance["M_GpuBadges_Title"],
+            ShortLabelProvider = () => LocalizationService.Instance["M_GpuBadges_Short"],
             DefaultSymbol = SymbolRegular.Games24,
-            Description = "Hiển thị thẻ DLSS, DLAA, Reflex, FSR, AFMF, XeSS, RT...",
+            DescriptionProvider = () => LocalizationService.Instance["M_GpuBadges_Desc"],
             IsGpuBadgesMetric = true
         });
 
@@ -601,14 +647,14 @@ public sealed class HardwareMonitorService : IDisposable
 
         foreach (var inst in physicalInstances)
         {
-            string model = wmiDiskModels.TryGetValue(inst.DiskIndex, out var wmiModel)
-                ? wmiModel
-                : $"Ổ đĩa vật lý {inst.DiskIndex}";
+            bool hasWmiModel = wmiDiskModels.TryGetValue(inst.DiskIndex, out var wmiModel) && !string.IsNullOrWhiteSpace(wmiModel);
+            string model = hasWmiModel ? wmiModel! : string.Empty;
 
             // Khớp với LibreHardwareMonitor Storage hardware tương ứng nếu có
             var matchedLhm = lhmStorages.FirstOrDefault(h =>
                 !usedLhm.Contains(h) &&
                 !string.IsNullOrWhiteSpace(h.Name) &&
+                !string.IsNullOrWhiteSpace(model) &&
                 (model.Contains(h.Name, StringComparison.OrdinalIgnoreCase) ||
                  h.Name.Contains(model, StringComparison.OrdinalIgnoreCase)));
 
@@ -618,19 +664,19 @@ public sealed class HardwareMonitorService : IDisposable
             if (matchedLhm != null)
             {
                 usedLhm.Add(matchedLhm);
-                if (model.StartsWith("Ổ đĩa vật lý", StringComparison.Ordinal) && !string.IsNullOrWhiteSpace(matchedLhm.Name))
-                    model = CleanHardwareName(matchedLhm.Name, model);
+                if (string.IsNullOrWhiteSpace(model) && !string.IsNullOrWhiteSpace(matchedLhm.Name))
+                    model = CleanHardwareName(matchedLhm.Name, string.Empty);
             }
 
+            string cleanModel = CleanHardwareName(model, string.Empty);
             string letters = inst.DriveLetters;
-            string shortTag = BuildShortDiskTag(inst.DiskIndex, letters);
 
             var desc = new PhysicalDiskDescriptor
             {
                 DiskIndex = inst.DiskIndex,
-                ModelName = CleanHardwareName(model, $"Ổ đĩa {inst.DiskIndex}"),
+                ModelName = cleanModel,
+                HasRealModelName = !string.IsNullOrWhiteSpace(cleanModel),
                 DriveLetters = letters,
-                ShortTag = shortTag,
                 LhmHardware = matchedLhm,
                 ReadCounter = TryCreateCounter("PhysicalDisk", "Disk Read Bytes/sec", inst.InstanceName),
                 WriteCounter = TryCreateCounter("PhysicalDisk", "Disk Write Bytes/sec", inst.InstanceName)
@@ -644,77 +690,82 @@ public sealed class HardwareMonitorService : IDisposable
             for (int i = 0; i < lhmStorages.Count; i++)
             {
                 var hw = lhmStorages[i];
+                string cleanModel = CleanHardwareName(hw.Name, string.Empty);
                 _disks.Add(new PhysicalDiskDescriptor
                 {
                     DiskIndex = i,
-                    ModelName = CleanHardwareName(hw.Name, $"Ổ đĩa {i}"),
+                    ModelName = cleanModel,
+                    HasRealModelName = !string.IsNullOrWhiteSpace(cleanModel),
                     DriveLetters = string.Empty,
-                    ShortTag = $"Ổ {i}",
                     LhmHardware = hw
                 });
             }
         }
 
         // Nhóm 1: Tổng tất cả ổ cứng
-        string totalSubtitle = _disks.Count > 0
-            ? $"Tổng hợp tất cả {_disks.Count} ổ vật lý (MB/s)"
-            : "Tốc độ đọc / ghi tổng thể (MB/s)";
+        int diskCount = _disks.Count;
+        Func<string> totalGroupTitle = () => LocalizationService.Instance["GrpStorageTotal"];
+        Func<string> totalGroupSub = () => diskCount > 0
+            ? LocalizationService.Instance.Format("GrpStorageTotalSubCount", diskCount)
+            : LocalizationService.Instance["GrpStorageTotalSub"];
 
         _discoveredMetrics.Add(new MetricItem
         {
             Id = "disk_total_read",
             Category = MetricCategory.Storage,
             GroupKey = "storage_total",
-            GroupTitle = "Ổ cứng — Tổng tất cả ổ",
-            GroupSubtitle = totalSubtitle,
-            Title = "Đọc ổ cứng (Tổng)",
-            ShortLabel = "Đọc ổ",
+            GroupTitleProvider = totalGroupTitle,
+            GroupSubtitleProvider = totalGroupSub,
+            TitleProvider = () => LocalizationService.Instance["M_DiskTotalRead_Title"],
+            ShortLabelProvider = () => LocalizationService.Instance["M_DiskTotalRead_Short"],
             DefaultSymbol = SymbolRegular.HardDrive24,
-            Description = "Tổng tốc độ đọc các ổ cứng (MB/s)"
+            DescriptionProvider = () => LocalizationService.Instance["M_DiskTotalRead_Desc"]
         });
         _discoveredMetrics.Add(new MetricItem
         {
             Id = "disk_total_write",
             Category = MetricCategory.Storage,
             GroupKey = "storage_total",
-            GroupTitle = "Ổ cứng — Tổng tất cả ổ",
-            GroupSubtitle = totalSubtitle,
-            Title = "Ghi ổ cứng (Tổng)",
-            ShortLabel = "Ghi ổ",
+            GroupTitleProvider = totalGroupTitle,
+            GroupSubtitleProvider = totalGroupSub,
+            TitleProvider = () => LocalizationService.Instance["M_DiskTotalWrite_Title"],
+            ShortLabelProvider = () => LocalizationService.Instance["M_DiskTotalWrite_Short"],
             DefaultSymbol = SymbolRegular.Storage24,
-            Description = "Tổng tốc độ ghi các ổ cứng (MB/s)"
+            DescriptionProvider = () => LocalizationService.Instance["M_DiskTotalWrite_Desc"]
         });
 
         // Nhóm 2+: Riêng từng ổ vật lý trên máy
         foreach (var disk in _disks)
         {
+            var capturedDisk = disk;
             string letterSuffix = string.IsNullOrWhiteSpace(disk.DriveLetters) ? string.Empty : $" ({disk.DriveLetters})";
             string groupKey = $"storage_{disk.DiskIndex}";
-            string groupTitle = $"Ổ cứng {disk.DiskIndex}{letterSuffix}";
+            Func<string> diskGroupTitle = () => LocalizationService.Instance.Format("GrpStorageDisk", capturedDisk.DiskIndex, letterSuffix);
+            Func<string> diskGroupSub = () => capturedDisk.GetLocalizedModelName();
 
             _discoveredMetrics.Add(new MetricItem
             {
                 Id = $"disk_{disk.DiskIndex}_read",
                 Category = MetricCategory.Storage,
                 GroupKey = groupKey,
-                GroupTitle = groupTitle,
-                GroupSubtitle = disk.ModelName,
-                Title = $"Đọc {disk.ShortTag}",
-                ShortLabel = $"Đọc {disk.ShortTag}",
+                GroupTitleProvider = diskGroupTitle,
+                GroupSubtitleProvider = diskGroupSub,
+                TitleProvider = () => LocalizationService.Instance.Format("M_DiskRead_Title", capturedDisk.GetLocalizedShortTag()),
+                ShortLabelProvider = () => LocalizationService.Instance.Format("M_DiskRead_Short", capturedDisk.GetLocalizedShortTag()),
                 DefaultSymbol = SymbolRegular.HardDrive24,
-                Description = $"Tốc độ đọc {disk.ModelName} (MB/s)"
+                DescriptionProvider = () => LocalizationService.Instance.Format("M_DiskRead_Desc", capturedDisk.GetLocalizedModelName())
             });
             _discoveredMetrics.Add(new MetricItem
             {
                 Id = $"disk_{disk.DiskIndex}_write",
                 Category = MetricCategory.Storage,
                 GroupKey = groupKey,
-                GroupTitle = groupTitle,
-                GroupSubtitle = disk.ModelName,
-                Title = $"Ghi {disk.ShortTag}",
-                ShortLabel = $"Ghi {disk.ShortTag}",
+                GroupTitleProvider = diskGroupTitle,
+                GroupSubtitleProvider = diskGroupSub,
+                TitleProvider = () => LocalizationService.Instance.Format("M_DiskWrite_Title", capturedDisk.GetLocalizedShortTag()),
+                ShortLabelProvider = () => LocalizationService.Instance.Format("M_DiskWrite_Short", capturedDisk.GetLocalizedShortTag()),
                 DefaultSymbol = SymbolRegular.Storage24,
-                Description = $"Tốc độ ghi {disk.ModelName} (MB/s)"
+                DescriptionProvider = () => LocalizationService.Instance.Format("M_DiskWrite_Desc", capturedDisk.GetLocalizedModelName())
             });
         }
     }
@@ -1064,7 +1115,7 @@ public sealed class HardwareMonitorService : IDisposable
         return (idx, letters, instanceName);
     }
 
-    private static string BuildShortDiskTag(int diskIndex, string driveLetters)
+    private static string BuildLocalizedDiskTag(int diskIndex, string driveLetters)
     {
         if (!string.IsNullOrWhiteSpace(driveLetters))
         {
@@ -1072,9 +1123,9 @@ public sealed class HardwareMonitorService : IDisposable
             if (tokens.Length == 1)
                 return tokens[0]; // e.g., "C:"
             if (tokens.Length > 1)
-                return $"Ổ {diskIndex} ({tokens[0]})";
+                return $"{LocalizationService.Instance.Format("DiskTagPrefix", diskIndex)} ({tokens[0]})";
         }
-        return $"Ổ {diskIndex}";
+        return LocalizationService.Instance.Format("DiskTagPrefix", diskIndex);
     }
 
     private static Dictionary<int, string> QueryWmiDiskModels()

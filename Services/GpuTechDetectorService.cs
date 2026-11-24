@@ -10,13 +10,35 @@ using Microsoft.Win32;
 
 namespace WinHardwareMonitor.Services;
 
+public enum GpuDetectionStatusKind
+{
+    Waiting,
+    DirectDll,
+    AntiCheatFallback,
+    GameFolder
+}
+
 public sealed class GpuTechDetectionSnapshot
 {
     public bool IsGameActive { get; init; }
     public string ForegroundExeName { get; init; } = string.Empty;
+    public GpuDetectionStatusKind StatusKind { get; init; }
+    public int LoadedModuleCount { get; init; }
     public string DetectionModeNote { get; init; } = string.Empty;
     public bool WasAccessDeniedFallback { get; init; }
     public IReadOnlySet<string> DetectedTechIds { get; init; } = new HashSet<string>();
+
+    public static string FormatNote(GpuDetectionStatusKind kind, string exeName, int moduleCount)
+    {
+        var loc = LocalizationService.Instance;
+        return kind switch
+        {
+            GpuDetectionStatusKind.AntiCheatFallback => loc.Format("GpuDetAntiCheat", exeName),
+            GpuDetectionStatusKind.DirectDll => loc.Format("GpuDetDirect", exeName, moduleCount),
+            GpuDetectionStatusKind.GameFolder => loc.Format("GpuDetFolder", exeName),
+            _ => loc["GpuDetWaiting"]
+        };
+    }
 }
 
 /// <summary>
@@ -231,17 +253,19 @@ public sealed class GpuTechDetectorService : IDisposable
             if (HasAnyDll(allDlls, "libxell.dll"))
                 detected.Add("intel_xell");
 
-            string modeNote = accessDenied
-                ? $"Chế độ an toàn Anti-Cheat ({exeName}): quét thư mục game & hồ sơ ghi đè"
+            var statusKind = accessDenied
+                ? GpuDetectionStatusKind.AntiCheatFallback
                 : moduleScanOk
-                    ? $"Đang quét DLL trực tiếp: {exeName} ({loadedDlls.Count} module)"
-                    : $"Đang quét thư mục game: {exeName}";
+                    ? GpuDetectionStatusKind.DirectDll
+                    : GpuDetectionStatusKind.GameFolder;
 
             return new GpuTechDetectionSnapshot
             {
                 IsGameActive = true,
                 ForegroundExeName = exeName,
-                DetectionModeNote = modeNote,
+                StatusKind = statusKind,
+                LoadedModuleCount = loadedDlls.Count,
+                DetectionModeNote = GpuTechDetectionSnapshot.FormatNote(statusKind, exeName, loadedDlls.Count),
                 WasAccessDeniedFallback = accessDenied,
                 DetectedTechIds = detected
             };
@@ -257,7 +281,9 @@ public sealed class GpuTechDetectorService : IDisposable
     {
         IsGameActive = false,
         ForegroundExeName = string.Empty,
-        DetectionModeNote = "Chờ game 3D ở cửa sổ trên cùng để tự động nhận diện công nghệ GPU...",
+        StatusKind = GpuDetectionStatusKind.Waiting,
+        LoadedModuleCount = 0,
+        DetectionModeNote = LocalizationService.Instance["GpuDetWaiting"],
         DetectedTechIds = new HashSet<string>()
     };
 

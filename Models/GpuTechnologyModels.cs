@@ -1,6 +1,7 @@
 using System;
 using System.Collections.ObjectModel;
 using System.Windows.Media;
+using WinHardwareMonitor.Services;
 using WinHardwareMonitor.ViewModels;
 
 namespace WinHardwareMonitor.Models;
@@ -13,7 +14,7 @@ public enum GpuVendor
     Other
 }
 
-public sealed class DetectedGpuInfo
+public sealed class DetectedGpuInfo : ObservableObject
 {
     public string Id { get; init; } = string.Empty;
     public string Name { get; init; } = string.Empty;
@@ -25,10 +26,13 @@ public sealed class DetectedGpuInfo
         GpuVendor.Nvidia => "NVIDIA",
         GpuVendor.Amd => "AMD",
         GpuVendor.Intel => "Intel",
-        _ => "Khác"
+        _ => LocalizationService.Instance["GpuVendorOther"]
     };
 
-    public string KindBadge => IsDiscrete ? "Card rời" : "Card tích hợp";
+    public string KindBadge => IsDiscrete
+        ? LocalizationService.Instance["GpuDiscrete"]
+        : LocalizationService.Instance["GpuIntegrated"];
+
     public string DisplayLabel => $"{VendorDisplayName} — {Name} ({KindBadge})";
 
     public SolidColorBrush VendorAccentBrush => Vendor switch
@@ -38,6 +42,13 @@ public sealed class DetectedGpuInfo
         GpuVendor.Intel => Freeze("#38BDF8"),
         _ => Freeze("#94A3B8")
     };
+
+    public void RefreshLocalization()
+    {
+        OnPropertyChanged(nameof(VendorDisplayName));
+        OnPropertyChanged(nameof(KindBadge));
+        OnPropertyChanged(nameof(DisplayLabel));
+    }
 
     private static SolidColorBrush Freeze(string hex)
     {
@@ -57,7 +68,8 @@ public sealed class GpuTechItemViewModel : ObservableObject
     public string Id { get; init; } = string.Empty;
     public string Name { get; init; } = string.Empty;
     public string BadgeText { get; init; } = string.Empty;
-    public string Description { get; init; } = string.Empty;
+    public string DescriptionKey { get; init; } = string.Empty;
+    public string Description => LocalizationService.Instance[DescriptionKey];
     public GpuVendor Vendor { get; init; }
     public Action? OnToggleChanged { get; set; }
     public Action<GpuTechItemViewModel>? OnOverrideChanged { get; set; }
@@ -82,7 +94,9 @@ public sealed class GpuTechItemViewModel : ObservableObject
         }
     }
 
-    public string AutoDetectedLabel => IsAutoDetected ? "Đã phát hiện" : "Không thấy";
+    public string AutoDetectedLabel => IsAutoDetected
+        ? LocalizationService.Instance["TechDetected"]
+        : LocalizationService.Instance["TechNotDetected"];
 
     public GameTechOverrideState GameOverride
     {
@@ -106,10 +120,17 @@ public sealed class GpuTechItemViewModel : ObservableObject
 
     public string OverrideLabel => _gameOverride switch
     {
-        GameTechOverrideState.ForceOn => "Bật thủ công",
-        GameTechOverrideState.ForceOff => "Tắt thủ công",
-        _ => "Tự động"
+        GameTechOverrideState.ForceOn => LocalizationService.Instance["OverrideForceOn"],
+        GameTechOverrideState.ForceOff => LocalizationService.Instance["OverrideForceOff"],
+        _ => LocalizationService.Instance["OverrideAuto"]
     };
+
+    public void RefreshLocalization()
+    {
+        OnPropertyChanged(nameof(Description));
+        OnPropertyChanged(nameof(AutoDetectedLabel));
+        OnPropertyChanged(nameof(OverrideLabel));
+    }
 
     public void SetEnabledSilent(bool value)
     {
@@ -142,7 +163,8 @@ public sealed class GpuTechVendorGroupViewModel : ObservableObject
 
     public GpuVendor Vendor { get; init; }
     public string Title { get; init; } = string.Empty;
-    public string Subtitle { get; init; } = string.Empty;
+    public string SubtitleKey { get; init; } = string.Empty;
+    public string Subtitle => LocalizationService.Instance[SubtitleKey];
     public SolidColorBrush AccentBrush { get; init; } = new(Colors.White);
     public ObservableCollection<GpuTechItemViewModel> Items { get; } = new();
 
@@ -168,6 +190,13 @@ public sealed class GpuTechVendorGroupViewModel : ObservableObject
     {
         get => _supportBadgeText;
         set => SetProperty(ref _supportBadgeText, value);
+    }
+
+    public void RefreshLocalization()
+    {
+        OnPropertyChanged(nameof(Subtitle));
+        foreach (var item in Items)
+            item.RefreshLocalization();
     }
 }
 
